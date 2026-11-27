@@ -137,9 +137,14 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .strip .card-head h2 { font-size: 13px; font-weight: 600; }
 .strip .widget { min-height: 72px; }
 .strip .widget > .tradingview-widget-container { position: static; }
-/* On a phone the strip becomes a 2 x 2 block, one quote per cell. */
+/* On a phone the strip becomes a 2 x 2 block of full quote panels (close, day change and the
+   pre-market / after-hours price). Each panel is laid out at a fixed width and scaled to its cell. */
 .strip .widget.split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.strip .widget.split > div { min-width: 0; min-height: 72px; }
+.strip .q { position: relative; overflow: hidden; min-width: 0; }
+.strip .q + .q:nth-child(even) { border-left: 1px solid var(--hairline); }
+.strip .q:nth-child(n + 3) { border-top: 1px solid var(--hairline); }
+.strip .q-in { transform-origin: 0 0; }
+.strip .q-in iframe { height: 320px !important; }
 
 .grid {
   display: grid;
@@ -227,9 +232,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .foot { color: var(--ink-2); font-size: 12px; display: flex; flex-wrap: wrap; gap: 2px 16px; }
 .foot a { color: inherit; }
 
-/* Phone-only pieces: two at-a-glance tiles, a tab bar that shows one chart at a time,
-   and a quote panel above that chart with the pre-market / after-hours price. */
-.glance, .chart-tabs, .card.chart > .info { display: none; }
+/* Phone-only pieces: two at-a-glance tiles and a tab bar that shows one chart at a time. */
+.glance, .chart-tabs { display: none; }
 .tile {
   background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px;
   padding: 8px 12px; min-width: 0; text-align: left; font: inherit; color: var(--ink); cursor: pointer;
@@ -265,11 +269,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   .glance { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .chart-tabs { display: flex; }
   .chart-tabs button { flex: 1; padding-left: 4px; padding-right: 4px; }
-  .card.chart, .card.a-vix { height: auto; }
-  .card.chart > .plot { flex: none; height: 430px; }
-  .card.chart > .info { display: block; flex: none; height: 300px; overflow: hidden; border-bottom: 1px solid var(--hairline); }
-  .card.chart > .info > .tradingview-widget-container { position: static; }
-  .card.chart > .info iframe { height: 300px !important; }
+  .card.chart, .card.a-vix { height: 460px; }
 }
 </style>
 </head>
@@ -290,7 +290,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   </header>
 
   <section class="card strip" aria-labelledby="h-strip">
-    <div class="card-head"><h2 id="h-strip">現在値と前日比</h2><span class="sub">通常取引の値。プレ・アフターは下の各銘柄に表示</span><span class="tag" id="feed-tag"></span></div>
+    <div class="card-head"><h2 id="h-strip">現在値と前日比</h2><span class="sub" id="strip-sub"></span><span class="tag" id="feed-tag"></span></div>
     <div class="widget" id="w-strip"></div>
   </section>
 
@@ -302,24 +302,20 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
     <div class="seg chart-tabs" role="group" aria-label="表示するチャート" id="chart-tabs"></div>
     <section class="card chart a-spxl" id="card-spxl" aria-labelledby="h-spxl">
       <div class="card-head"><h2 id="h-spxl">SPXL</h2><span class="sub">S&amp;P500 ブル3倍</span><span class="tag">下段 RSI(14)</span></div>
-      <div class="widget info" id="i-spxl"></div>
-      <div class="widget plot" id="w-spxl"></div>
+      <div class="widget" id="w-spxl"></div>
     </section>
     <section class="card chart a-soxl" id="card-soxl" aria-labelledby="h-soxl">
       <div class="card-head"><h2 id="h-soxl">SOXL</h2><span class="sub">半導体 ブル3倍</span><span class="tag">下段 RSI(14)</span></div>
-      <div class="widget info" id="i-soxl"></div>
-      <div class="widget plot" id="w-soxl"></div>
+      <div class="widget" id="w-soxl"></div>
     </section>
     <section class="card chart a-tqqq" id="card-tqqq" aria-labelledby="h-tqqq">
       <div class="card-head"><h2 id="h-tqqq">TQQQ</h2><span class="sub">NASDAQ100 ブル3倍</span><span class="tag">下段 RSI(14)</span></div>
-      <div class="widget info" id="i-tqqq"></div>
-      <div class="widget plot" id="w-tqqq"></div>
+      <div class="widget" id="w-tqqq"></div>
     </section>
     <section class="card chart a-vix" id="card-vix" aria-labelledby="h-vix">
       <div class="card-head"><h2 id="h-vix">VIX</h2><span class="vix-spot" id="vix-spot"></span></div>
       <p class="card-note" id="vix-note">チャートは先物に連動する CFD（参考値）</p>
-      <div class="widget info" id="i-vix"></div>
-      <div class="widget plot" id="w-vix"></div>
+      <div class="widget" id="w-vix"></div>
     </section>
     <section class="card fng a-fng" id="card-fng" aria-labelledby="h-fng">
       <div class="card-head"><h2 id="h-fng">Fear &amp; Greed</h2><span class="sub">CNN</span><span class="tag" id="fng-asof"></span></div>
@@ -473,21 +469,43 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
       locale: 'ja'
     };
   }
+  // Phone quote panels are laid out QUOTE_BASE px wide, then scaled to the cell they sit in.
+  var QUOTE_BASE = 340;
+  var QUOTE_FRAME = 320;
+  function fitQuotes() {
+    Array.prototype.forEach.call(document.querySelectorAll('#w-strip .q'), function (cell) {
+      var k = cell.clientWidth / QUOTE_BASE;
+      if (!(k > 0)) return;
+      cell.firstChild.style.width = QUOTE_BASE + 'px';
+      cell.firstChild.style.transform = 'scale(' + k + ')';
+      cell.style.height = Math.round(QUOTE_FRAME * k) + 'px';
+    });
+  }
   function mountStrip() {
     var host = $('w-strip');
     host.textContent = '';
-    // The quote widget drops symbols that do not fit, so a narrow screen gets one widget per symbol.
     var split = !!(narrowQuery && narrowQuery.matches);
     host.classList.toggle('split', split);
     if (!split) {
+      // Wide screens keep the one-line strip; it carries regular-session numbers only.
+      $('h-strip').textContent = '現在値と前日比';
+      $('strip-sub').textContent = '通常取引の値。プレ・アフターはチャート右端のラベル';
       mount(host, 'embed-widget-tickers.js', stripConfig(CHARTS));
       return;
     }
+    $('h-strip').textContent = '現在値・前日比・プレ/アフター';
+    $('strip-sub').textContent = '';
+    var symbols = FEEDS[feed].symbols;
     CHARTS.forEach(function (c) {
-      var cell = el('div');
+      var cell = el('div', { 'class': 'q' });
+      var inner = el('div', { 'class': 'q-in' });
+      cell.appendChild(inner);
       host.appendChild(cell);
-      mount(cell, 'embed-widget-tickers.js', stripConfig([c]));
+      mount(inner, 'embed-widget-symbol-info.js', {
+        symbol: symbols[c.id], width: '100%', isTransparent: true, colorTheme: effectiveTheme(), locale: 'ja'
+      });
     });
+    fitQuotes();
   }
   function mountCharts() {
     var theme = effectiveTheme();
@@ -498,13 +516,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
     CHARTS.forEach(function (c) {
       var show = !single || c.id === activeChart;
       $('card-' + c.id).hidden = !show;
-      $('i-' + c.id).textContent = '';
       if (!show) { $('w-' + c.id).textContent = ''; return; }
-      if (single) {
-        mount('i-' + c.id, 'embed-widget-symbol-info.js', {
-          symbol: symbols[c.id], width: '100%', isTransparent: true, colorTheme: theme, locale: 'ja'
-        });
-      }
       mount('w-' + c.id, 'embed-widget-advanced-chart.js', {
         autosize: true,
         symbol: symbols[c.id],
@@ -618,6 +630,9 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
     var prev = num(f.previous_close);
     if (prev !== null) side.appendChild(el('div', { 'class': 'fng-delta' }, '前日比 ' + signed(score - prev, 1)));
     setGlance('fng', String(Math.round(score)), label + (prev !== null ? '・前日比 ' + signed(score - prev, 1) : ''));
+    $('glance-fng').setAttribute('data-score', score.toFixed(2));
+    $('glance-fng').setAttribute('data-prev', prev !== null ? prev.toFixed(2) : '');
+    $('glance-fng').setAttribute('data-asof', f.timestamp || '');
     top.appendChild(side);
     body.appendChild(top);
 
@@ -876,6 +891,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
     narrowQuery.addEventListener('change', function () { mountStrip(); mountCharts(); });
   }
   if (window.ResizeObserver) {
+    new ResizeObserver(fitQuotes).observe($('w-strip'));
     var redraw = 0;
     new ResizeObserver(function () {
       window.cancelAnimationFrame(redraw);
