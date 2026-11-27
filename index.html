@@ -1,0 +1,875 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="マーケットボード">
+<meta name="theme-color" content="#f9f9f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0b0b" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>マーケットボード</title>
+<style>
+/* Layout: one screen on a wide monitor. Quote strip on top; three chart+RSI tiles;
+   below them VIX and the Fear & Greed card (gauge + one-year trend); news runs down the right edge.
+   Narrower screens move news below, and a phone stacks everything in one column. */
+:root {
+  color-scheme: light;
+  --page: #f9f9f9;
+  --surface: #ffffff;
+  --ink: #191919;
+  --ink-2: #666666;
+  --hairline: rgba(11, 11, 11, 0.10);
+  --accent: #257de0;
+  --accent-ink: #ffffff;
+  --wash: rgba(11, 11, 11, 0.05);
+  /* Fear & Greed zones: diverging, warm (fear) to cool (greed), gray in the middle */
+  --fear-2: #ec4647;
+  --fear-1: #f6b3b3;
+  --zone-mid: #c2c2c2;
+  --greed-1: #9dc8f7;
+  --greed-2: #257de0;
+  --band-alpha: 0.22;
+  --font: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0b0b0b;
+    --surface: #191919;
+    --ink: #efefef;
+    --ink-2: #9c9c9c;
+    --hairline: rgba(255, 255, 255, 0.10);
+    --accent: #338ced;
+    --accent-ink: #0b0b0b;
+    --wash: rgba(255, 255, 255, 0.07);
+    --fear-2: #eb6263;
+    --fear-1: #8a3536;
+    --zone-mid: #474747;
+    --greed-1: #1757ac;
+    --greed-2: #338ced;
+    --band-alpha: 0.26;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0b0b0b;
+  --surface: #191919;
+  --ink: #efefef;
+  --ink-2: #9c9c9c;
+  --hairline: rgba(255, 255, 255, 0.10);
+  --accent: #338ced;
+  --accent-ink: #0b0b0b;
+  --wash: rgba(255, 255, 255, 0.07);
+  --fear-2: #eb6263;
+  --fear-1: #8a3536;
+  --zone-mid: #474747;
+  --greed-1: #1757ac;
+  --greed-2: #338ced;
+  --band-alpha: 0.26;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 14px/1.5 var(--font);
+  -webkit-text-size-adjust: 100%;
+}
+[hidden] { display: none !important; }
+
+.board {
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 12px;
+  padding-top: max(12px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+/* ---- top bar ---- */
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; }
+.bar h1 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: 0.01em; }
+.clocks { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--ink-2); font-size: 13px; }
+.clock time { color: var(--ink); font-variant-numeric: tabular-nums; margin-left: 6px; }
+.controls { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.seg { display: inline-flex; border: 1px solid var(--hairline); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button, .btn {
+  font: inherit; font-size: 13px; color: var(--ink); background: transparent;
+  border: 0; padding: 6px 12px; cursor: pointer; min-height: 32px; white-space: nowrap;
+}
+.seg button + button { border-left: 1px solid var(--hairline); }
+.seg button:hover, .btn:hover { background: var(--wash); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn { border: 1px solid var(--hairline); border-radius: 8px; background: var(--surface); }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---- cards ---- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; padding: 8px 12px 6px; }
+.card-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
+.card-head .sub { color: var(--ink-2); font-size: 12px; }
+.card-head .tag { margin-left: auto; color: var(--ink-2); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.card-note { color: var(--ink-2); font-size: 12px; line-height: 1.4; padding: 0 12px 6px; margin: -2px 0 0; }
+.widget { position: relative; flex: 1; min-height: 0; }
+.widget > .tradingview-widget-container { position: absolute; inset: 0; }
+.widget .tradingview-widget-container__widget { width: 100%; height: 100%; }
+/* Keeps a transparent TradingView frame transparent when the page is dark. */
+.widget iframe { color-scheme: light; }
+
+.strip .card-head { padding-bottom: 0; }
+.strip .card-head h2 { font-size: 13px; font-weight: 600; }
+.strip .widget { min-height: 72px; }
+.strip .widget > .tradingview-widget-container { position: static; }
+/* On a phone the strip becomes a 2 x 2 block, one quote per cell. */
+.strip .widget.split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.strip .widget.split > div { min-width: 0; min-height: 72px; }
+
+.grid {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(280px, 340px);
+  grid-template-rows: minmax(300px, 1fr) clamp(300px, 36vh, 440px);
+  grid-template-areas:
+    "spxl soxl tqqq news"
+    "vix  fng  fng  news";
+}
+.a-spxl { grid-area: spxl; }
+.a-soxl { grid-area: soxl; }
+.a-tqqq { grid-area: tqqq; }
+.a-vix { grid-area: vix; }
+.a-fng { grid-area: fng; }
+.a-news { grid-area: news; }
+
+/* ---- VIX spot line ---- */
+.vix-spot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.vix-spot .k { color: var(--ink-2); font-size: 12px; margin-right: 4px; }
+.vix-spot b { font-weight: 650; font-size: 15px; }
+
+/* ---- Fear & Greed ---- */
+.fng-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 14px 22px;
+  padding: 4px 14px 12px;
+  flex: 1;
+  min-height: 0;
+}
+.fng-main { display: flex; flex-direction: column; gap: 12px; justify-content: center; min-width: 0; }
+.fng-top { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 4px 14px; }
+.fng-score { font-size: 56px; line-height: 1; font-weight: 650; }
+.fng-rating { font-size: 20px; font-weight: 650; line-height: 1.2; }
+.fng-delta { color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.fng-scale { position: relative; padding-top: 10px; }
+.fng-track { display: flex; gap: 2px; height: 10px; }
+.fng-track span { height: 100%; }
+.fng-track span:first-child { border-radius: 5px 0 0 5px; }
+.fng-track span:last-child { border-radius: 0 5px 5px 0; }
+.z-xfear { background: var(--fear-2); fill: var(--fear-2); }
+.z-fear { background: var(--fear-1); fill: var(--fear-1); }
+.z-neutral { background: var(--zone-mid); fill: var(--zone-mid); }
+.z-greed { background: var(--greed-1); fill: var(--greed-1); }
+.z-xgreed { background: var(--greed-2); fill: var(--greed-2); }
+.fng-pin {
+  position: absolute; top: 3px; width: 4px; height: 24px; margin-left: -2px;
+  background: var(--ink); border-radius: 2px; box-shadow: 0 0 0 2px var(--surface);
+}
+.fng-zones { display: flex; gap: 2px; margin-top: 8px; font-size: 11.5px; color: var(--ink-2); line-height: 1.25; }
+.fng-zones span { text-align: center; min-width: 0; }
+.fng-zones span[data-on="true"] { color: var(--ink); font-weight: 650; }
+.fng-zones small { display: block; font-size: 10.5px; font-weight: 400; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fng-past { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 18px; margin: 0; }
+.fng-past div { display: flex; align-items: baseline; gap: 8px; border-top: 1px solid var(--hairline); padding-top: 4px; }
+.fng-past dt { color: var(--ink-2); font-size: 12px; }
+.fng-past dd { margin: 0 0 0 auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+.fng-past dd small { font-weight: 400; color: var(--ink-2); margin-left: 6px; font-size: 12px; }
+.fng-msg { color: var(--ink-2); font-size: 13px; }
+.fng-msg strong { color: var(--ink); display: block; font-size: 14px; margin-bottom: 4px; }
+.fng-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.fng-actions a { color: var(--accent); align-self: center; }
+
+.fng-trend { display: flex; flex-direction: column; min-width: 0; min-height: 170px; }
+.fng-trend h3 { margin: 0 0 2px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.fng-chart { position: relative; flex: 1; min-height: 140px; }
+.fng-chart svg { display: block; position: absolute; inset: 0; touch-action: pan-y; }
+.fng-chart .band { opacity: var(--band-alpha); }
+.fng-chart .gridline { stroke: var(--hairline); stroke-width: 1; }
+.fng-chart .tick { fill: var(--ink-2); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.fng-chart .line { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.fng-chart .dot { fill: var(--ink); stroke: var(--surface); stroke-width: 2; }
+.fng-chart .cross { stroke: var(--ink-2); stroke-width: 1; }
+.tip {
+  position: absolute; z-index: 2; pointer-events: none; white-space: nowrap;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--hairline); border-radius: 6px;
+  padding: 4px 8px; font-size: 12px; line-height: 1.35; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  font-variant-numeric: tabular-nums;
+}
+.tip span { color: var(--ink-2); display: block; font-size: 11px; }
+.tip b { font-weight: 650; }
+
+.foot { color: var(--ink-2); font-size: 12px; display: flex; flex-wrap: wrap; gap: 2px 16px; }
+.foot a { color: inherit; }
+
+/* Phone-only pieces: two at-a-glance tiles and a tab bar that shows one chart at a time. */
+.glance, .chart-tabs { display: none; }
+.tile {
+  background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px;
+  padding: 8px 12px; min-width: 0; text-align: left; font: inherit; color: var(--ink); cursor: pointer;
+  display: flex; flex-direction: column;
+}
+.tile-k { font-size: 12px; color: var(--ink-2); }
+.tile-v { font-size: 24px; font-weight: 650; line-height: 1.2; }
+.tile-s { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 1279px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: clamp(320px, 50vh, 620px) clamp(300px, 36vh, 440px) 480px;
+    grid-template-areas:
+      "spxl soxl tqqq"
+      "vix  fng  fng"
+      "news news news";
+  }
+}
+@media (max-width: 999px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-template-areas: "spxl" "soxl" "tqqq" "vix" "fng" "news";
+  }
+  .card.chart { height: 440px; }
+  .card.a-vix { height: 380px; }
+  .card.a-news { height: 540px; }
+  .controls { margin-left: 0; }
+}
+@media (max-width: 700px) {
+  .grid { display: flex; flex-direction: column; }
+  .glance { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .chart-tabs { display: flex; }
+  .chart-tabs button { flex: 1; padding-left: 4px; padding-right: 4px; }
+  .card.chart, .card.a-vix { height: 460px; }
+}
+</style>
+</head>
+<body>
+<div class="board">
+
+  <header class="bar">
+    <h1>マーケットボード</h1>
+    <div class="clocks">
+      <span class="clock">ニューヨーク<time id="clock-ny">--:--:--</time></span>
+      <span class="clock">日本<time id="clock-jp">--:--:--</time></span>
+    </div>
+    <div class="controls">
+      <div class="seg" role="group" aria-label="価格データ" id="feed-group"></div>
+      <div class="seg" role="group" aria-label="チャートの足" id="interval-group"></div>
+      <button class="btn" type="button" id="theme-btn">表示: 自動</button>
+    </div>
+  </header>
+
+  <section class="card strip" aria-labelledby="h-strip">
+    <div class="card-head"><h2 id="h-strip">現在値と前日比</h2><span class="tag" id="feed-tag"></span></div>
+    <div class="widget" id="w-strip"></div>
+  </section>
+
+  <main class="grid">
+    <div class="glance" id="glance" hidden>
+      <button class="tile" type="button" id="glance-fng"><span class="tile-k">Fear &amp; Greed</span><span class="tile-v" id="glance-fng-v">–</span><span class="tile-s" id="glance-fng-s"></span></button>
+      <button class="tile" type="button" id="glance-vix"><span class="tile-k">VIX 現物</span><span class="tile-v" id="glance-vix-v">–</span><span class="tile-s" id="glance-vix-s"></span></button>
+    </div>
+    <div class="seg chart-tabs" role="group" aria-label="表示するチャート" id="chart-tabs"></div>
+    <section class="card chart a-spxl" id="card-spxl" aria-labelledby="h-spxl">
+      <div class="card-head"><h2 id="h-spxl">SPXL</h2><span class="sub">S&amp;P500 ブル3倍</span><span class="tag">下段 RSI(14)</span></div>
+      <div class="widget" id="w-spxl"></div>
+    </section>
+    <section class="card chart a-soxl" id="card-soxl" aria-labelledby="h-soxl">
+      <div class="card-head"><h2 id="h-soxl">SOXL</h2><span class="sub">半導体 ブル3倍</span><span class="tag">下段 RSI(14)</span></div>
+      <div class="widget" id="w-soxl"></div>
+    </section>
+    <section class="card chart a-tqqq" id="card-tqqq" aria-labelledby="h-tqqq">
+      <div class="card-head"><h2 id="h-tqqq">TQQQ</h2><span class="sub">NASDAQ100 ブル3倍</span><span class="tag">下段 RSI(14)</span></div>
+      <div class="widget" id="w-tqqq"></div>
+    </section>
+    <section class="card chart a-vix" id="card-vix" aria-labelledby="h-vix">
+      <div class="card-head"><h2 id="h-vix">VIX</h2><span class="vix-spot" id="vix-spot"></span></div>
+      <p class="card-note" id="vix-note">チャートは先物に連動する CFD（参考値）</p>
+      <div class="widget" id="w-vix"></div>
+    </section>
+    <section class="card fng a-fng" id="card-fng" aria-labelledby="h-fng">
+      <div class="card-head"><h2 id="h-fng">Fear &amp; Greed</h2><span class="sub">CNN</span><span class="tag" id="fng-asof"></span></div>
+      <div class="fng-body">
+        <div class="fng-main" id="fng-main"><p class="fng-msg">読み込み中…</p></div>
+        <div class="fng-trend" id="fng-trend" hidden>
+          <h3>この1年の推移</h3>
+          <div class="fng-chart" id="fng-chart"></div>
+        </div>
+      </div>
+    </section>
+    <section class="card a-news" aria-labelledby="h-news">
+      <div class="card-head"><h2 id="h-news">米国株ニュース</h2><span class="sub">TradingView・英語</span></div>
+      <div class="widget" id="w-news"></div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span id="feed-note"></span>
+    <span>価格・チャート・ニュース: <a href="https://jp.tradingview.com/" target="_blank" rel="noopener nofollow">TradingView</a></span>
+    <span>Fear &amp; Greed と VIX 現物: <a href="https://edition.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener nofollow">CNN Business</a>（5分ごと）</span>
+    <span id="cnn-fetched"></span>
+    <span>表示は参考値です。投資の判断はご自身でお願いします。</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- what the board shows ----
+  // Two price feeds, both through TradingView's free embedded widgets:
+  //   rt = Capital.com CFD quotes: real time, a broker's reference price that tracks the ETF closely
+  //   ex = exchange data (Cboe One): the official prints, shown 15 minutes late in embedded widgets
+  // The VIX index itself is not offered to embedded widgets, so both feeds chart the VIX CFD
+  // and the card prints the spot value that comes with CNN's Fear & Greed data.
+  var FEEDS = {
+    rt: {
+      label: 'リアルタイム',
+      tag: 'CFD参考値・リアルタイム',
+      note: 'リアルタイム表示は Capital.com の CFD 参考値です。取引所の約定値とはわずかに差が出ます。',
+      symbols: { spxl: 'CAPITALCOM:SPXL', soxl: 'CAPITALCOM:SOXL', tqqq: 'CAPITALCOM:TQQQ', vix: 'CAPITALCOM:VIX' }
+    },
+    ex: {
+      label: '取引所（15分遅れ）',
+      tag: '取引所データ・15分遅れ',
+      note: '取引所データ（Cboe One）は埋め込み表示では15分遅れです。',
+      symbols: { spxl: 'AMEX:SPXL', soxl: 'AMEX:SOXL', tqqq: 'NASDAQ:TQQQ', vix: 'CAPITALCOM:VIX' }
+    }
+  };
+  var CHARTS = [
+    { id: 'spxl', title: 'SPXL', rsi: true },
+    { id: 'soxl', title: 'SOXL', rsi: true },
+    { id: 'tqqq', title: 'TQQQ', rsi: true },
+    { id: 'vix', title: 'VIX CFD', rsi: false }
+  ];
+  var INTERVALS = [
+    { key: '5', label: '5分' },
+    { key: '15', label: '15分' },
+    { key: '60', label: '1時間' },
+    { key: 'D', label: '日足' },
+    { key: 'W', label: '週足' }
+  ];
+  var CNN_URL = 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata';
+  var CNN_EVERY_MS = 5 * 60 * 1000;
+  var DAY_MS = 24 * 60 * 60 * 1000;
+  var ZONES = [
+    { key: 'xfear', from: 0, to: 25, label: '極度の恐怖' },
+    { key: 'fear', from: 25, to: 45, label: '恐怖' },
+    { key: 'neutral', from: 45, to: 55, label: '中立' },
+    { key: 'greed', from: 55, to: 75, label: '強欲' },
+    { key: 'xgreed', from: 75, to: 100, label: '極度の強欲' }
+  ];
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+
+  // ---- small helpers ----
+  function $(id) { return document.getElementById(id); }
+  function el(tag, attrs, text) {
+    var n = document.createElement(tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) { n.setAttribute(k, attrs[k]); });
+    if (text !== undefined && text !== null) n.textContent = text;
+    return n;
+  }
+  function svgEl(tag, attrs, text) {
+    var n = document.createElementNS(SVG_NS, tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) { n.setAttribute(k, attrs[k]); });
+    if (text !== undefined && text !== null) n.textContent = text;
+    return n;
+  }
+  function load(key, fallback) {
+    try { var v = window.localStorage.getItem(key); return v === null ? fallback : v; } catch (e) { return fallback; }
+  }
+  function save(key, value) {
+    try { window.localStorage.setItem(key, value); } catch (e) { /* storage may be unavailable */ }
+  }
+  function num(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
+  function signed(d, digits) {
+    var sign = d > 0 ? '+' : d < 0 ? '−' : '±';
+    return sign + Math.abs(d).toFixed(digits);
+  }
+
+  // ---- settings ----
+  var THEMES = ['auto', 'dark', 'light'];
+  var THEME_LABEL = { auto: '自動', dark: 'ダーク', light: 'ライト' };
+  var themeChoice = load('mb.theme', 'auto');
+  if (THEMES.indexOf(themeChoice) < 0) themeChoice = 'auto';
+  var feed = load('mb.feed', 'rt');
+  if (!FEEDS[feed]) feed = 'rt';
+  var interval = load('mb.interval', 'D');
+  if (!INTERVALS.some(function (i) { return i.key === interval; })) interval = 'D';
+  var activeChart = load('mb.chart', 'spxl');
+  if (!CHARTS.some(function (c) { return c.id === activeChart; })) activeChart = 'spxl';
+  var darkQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  var narrowQuery = window.matchMedia ? window.matchMedia('(max-width: 700px)') : null;
+
+  function effectiveTheme() {
+    if (themeChoice === 'auto') return darkQuery && darkQuery.matches ? 'dark' : 'light';
+    return themeChoice;
+  }
+  function applyTheme() {
+    if (themeChoice === 'auto') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', themeChoice);
+    $('theme-btn').textContent = '表示: ' + THEME_LABEL[themeChoice];
+  }
+  function applyFeedLabels() {
+    $('feed-tag').textContent = FEEDS[feed].tag;
+    $('feed-note').textContent = FEEDS[feed].note;
+  }
+
+  // ---- TradingView widgets ----
+  function mount(host, scriptName, config) {
+    if (typeof host === 'string') host = $(host);
+    host.textContent = '';
+    var box = el('div', { 'class': 'tradingview-widget-container' });
+    box.appendChild(el('div', { 'class': 'tradingview-widget-container__widget' }));
+    var s = document.createElement('script');
+    s.type = 'text/javascript';
+    s.async = true;
+    s.src = 'https://s3.tradingview.com/external-embedding/' + scriptName;
+    s.text = JSON.stringify(config);
+    box.appendChild(s);
+    host.appendChild(box);
+  }
+  function stripConfig(list) {
+    var symbols = FEEDS[feed].symbols;
+    return {
+      symbols: list.map(function (c) { return { proName: symbols[c.id], title: c.title }; }),
+      isTransparent: true,
+      showSymbolLogo: false,
+      colorTheme: effectiveTheme(),
+      locale: 'ja'
+    };
+  }
+  function mountStrip() {
+    var host = $('w-strip');
+    host.textContent = '';
+    // The quote widget drops symbols that do not fit, so a narrow screen gets one widget per symbol.
+    var split = !!(narrowQuery && narrowQuery.matches);
+    host.classList.toggle('split', split);
+    if (!split) {
+      mount(host, 'embed-widget-tickers.js', stripConfig(CHARTS));
+      return;
+    }
+    CHARTS.forEach(function (c) {
+      var cell = el('div');
+      host.appendChild(cell);
+      mount(cell, 'embed-widget-tickers.js', stripConfig([c]));
+    });
+  }
+  function mountCharts() {
+    var theme = effectiveTheme();
+    var dark = theme === 'dark';
+    var symbols = FEEDS[feed].symbols;
+    // A phone shows one chart at a time (picked with the tab bar), which keeps the page light.
+    var single = !!(narrowQuery && narrowQuery.matches);
+    CHARTS.forEach(function (c) {
+      var show = !single || c.id === activeChart;
+      $('card-' + c.id).hidden = !show;
+      if (!show) { $('w-' + c.id).textContent = ''; return; }
+      mount('w-' + c.id, 'embed-widget-advanced-chart.js', {
+        autosize: true,
+        symbol: symbols[c.id],
+        interval: interval,
+        timezone: 'Asia/Tokyo',
+        theme: theme,
+        style: '1',
+        locale: 'ja',
+        backgroundColor: dark ? 'rgba(25, 25, 25, 1)' : 'rgba(255, 255, 255, 1)',
+        gridColor: dark ? 'rgba(48, 48, 48, 1)' : 'rgba(231, 231, 231, 1)',
+        hide_top_toolbar: true,
+        hide_side_toolbar: true,
+        hide_legend: false,
+        hide_volume: true,
+        allow_symbol_change: false,
+        save_image: false,
+        calendar: false,
+        withdateranges: false,
+        studies: c.rsi ? ['STD;RSI'] : [],
+        support_host: 'https://www.tradingview.com'
+      });
+    });
+  }
+  function mountNews() {
+    mount('w-news', 'embed-widget-timeline.js', {
+      feedMode: 'market',
+      market: 'stock',
+      isTransparent: true,
+      displayMode: 'regular',
+      width: '100%',
+      height: '100%',
+      colorTheme: effectiveTheme(),
+      locale: 'ja'
+    });
+  }
+  function mountAll() { mountStrip(); mountCharts(); mountNews(); }
+
+  function buildChoice(groupId, options, current, onPick) {
+    var group = $(groupId);
+    options.forEach(function (o) {
+      var b = el('button', { type: 'button', 'data-key': o.key, 'aria-pressed': String(o.key === current) }, o.label);
+      b.addEventListener('click', function () {
+        if (b.getAttribute('aria-pressed') === 'true') return;
+        Array.prototype.forEach.call(group.children, function (n) {
+          n.setAttribute('aria-pressed', String(n === b));
+        });
+        onPick(o.key);
+      });
+      group.appendChild(b);
+    });
+  }
+  function setPressed(groupId, key) {
+    Array.prototype.forEach.call($(groupId).children, function (n) {
+      n.setAttribute('aria-pressed', String(n.getAttribute('data-key') === key));
+    });
+  }
+  function pickChart(key) {
+    activeChart = key;
+    save('mb.chart', activeChart);
+    setPressed('chart-tabs', activeChart);
+    mountCharts();
+  }
+  function setGlance(which, value, sub) {
+    $('glance-' + which + '-v').textContent = value;
+    $('glance-' + which + '-s').textContent = sub;
+    $('glance').hidden = false;
+  }
+
+  // ---- clocks ----
+  var clockOpts = { weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+  var fmtNY = new Intl.DateTimeFormat('ja-JP', Object.assign({ timeZone: 'America/New_York' }, clockOpts));
+  var fmtJP = new Intl.DateTimeFormat('ja-JP', Object.assign({ timeZone: 'Asia/Tokyo' }, clockOpts));
+  function tick() {
+    var now = new Date();
+    $('clock-ny').textContent = fmtNY.format(now);
+    $('clock-jp').textContent = fmtJP.format(now);
+  }
+
+  // ---- CNN data: Fear & Greed, its history, and the spot VIX it carries ----
+  var RATING_JA = { 'extreme fear': '極度の恐怖', 'fear': '恐怖', 'neutral': '中立', 'greed': '強欲', 'extreme greed': '極度の強欲' };
+  var fmtStamp = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+  var fmtTime = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  var fmtDay = new Intl.DateTimeFormat('ja-JP', { timeZone: 'UTC', year: 'numeric', month: 'numeric', day: 'numeric' });
+  function zoneOf(score) {
+    for (var i = 0; i < ZONES.length; i++) if (score < ZONES[i].to) return ZONES[i];
+    return ZONES[ZONES.length - 1];
+  }
+  function ratingOf(score, rating) {
+    var ja = rating && RATING_JA[String(rating).toLowerCase()];
+    return ja || zoneOf(score).label;
+  }
+  function stampOf(value) {
+    var d = value ? new Date(value) : null;
+    return d && !isNaN(d) ? fmtStamp.format(d) + ' 時点' : '';
+  }
+  function cleanPoints(list) {
+    return (Array.isArray(list) ? list : []).filter(function (p) { return p && num(p.x) !== null && num(p.y) !== null; });
+  }
+
+  function renderFng(f) {
+    var score = Math.max(0, Math.min(100, f.score));
+    var zone = zoneOf(score);
+    var label = ratingOf(score, f.rating);
+    var body = $('fng-main');
+    body.textContent = '';
+
+    var top = el('div', { 'class': 'fng-top' });
+    top.appendChild(el('div', { 'class': 'fng-score' }, String(Math.round(score))));
+    var side = el('div');
+    side.appendChild(el('div', { 'class': 'fng-rating' }, label));
+    var prev = num(f.previous_close);
+    if (prev !== null) side.appendChild(el('div', { 'class': 'fng-delta' }, '前日比 ' + signed(score - prev, 1)));
+    setGlance('fng', String(Math.round(score)), label + (prev !== null ? '・前日比 ' + signed(score - prev, 1) : ''));
+    top.appendChild(side);
+    body.appendChild(top);
+
+    var scale = el('div', { 'class': 'fng-scale', role: 'img', 'aria-label': 'Fear & Greed 指数 ' + Math.round(score) + '（' + label + '）。0 が極度の恐怖、100 が極度の強欲。' });
+    var track = el('div', { 'class': 'fng-track' });
+    var names = el('div', { 'class': 'fng-zones', 'aria-hidden': 'true' });
+    ZONES.forEach(function (z) {
+      var seg = el('span', { 'class': 'z-' + z.key, title: z.label + '（' + z.from + '〜' + z.to + '）' });
+      seg.style.flex = String(z.to - z.from);
+      track.appendChild(seg);
+      var name = el('span', { 'data-on': String(z.key === zone.key) }, z.label);
+      name.style.flex = String(z.to - z.from);
+      name.appendChild(el('small', null, z.from + '–' + z.to));
+      names.appendChild(name);
+    });
+    scale.appendChild(track);
+    var pin = el('div', { 'class': 'fng-pin' });
+    pin.style.left = score + '%';
+    scale.appendChild(pin);
+    scale.appendChild(names);
+    body.appendChild(scale);
+
+    var past = el('dl', { 'class': 'fng-past' });
+    [['前日終値', f.previous_close], ['1週間前', f.previous_1_week], ['1か月前', f.previous_1_month], ['1年前', f.previous_1_year]].forEach(function (row) {
+      var v = num(row[1]);
+      if (v === null) return;
+      var wrap = el('div');
+      wrap.appendChild(el('dt', null, row[0]));
+      var dd = el('dd', null, String(Math.round(v)));
+      dd.appendChild(el('small', null, zoneOf(v).label));
+      wrap.appendChild(dd);
+      past.appendChild(wrap);
+    });
+    if (past.children.length) body.appendChild(past);
+
+    $('fng-asof').textContent = stampOf(f.timestamp);
+  }
+
+  // One-year trend of the index: a single line over faint zone bands, with a hover readout.
+  var trendPoints = [];
+  function drawTrend() {
+    var host = $('fng-chart');
+    host.textContent = '';
+    var pts = trendPoints;
+    var W = host.clientWidth, H = host.clientHeight;
+    if (pts.length < 2 || W < 140 || H < 90) return;
+    var m = { l: 26, r: 10, t: 8, b: 20 };
+    var pw = W - m.l - m.r, ph = H - m.t - m.b;
+    var x0 = pts[0].x, x1 = pts[pts.length - 1].x;
+    function sx(x) { return m.l + (x - x0) / (x1 - x0) * pw; }
+    function sy(y) { return m.t + (100 - y) / 100 * ph; }
+
+    var lo = pts[0], hi = pts[0];
+    pts.forEach(function (p) { if (p.y < lo.y) lo = p; if (p.y > hi.y) hi = p; });
+    var last = pts[pts.length - 1];
+    var svg = svgEl('svg', {
+      width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, role: 'img',
+      'aria-label': 'Fear & Greed 指数のこの1年の推移。最低 ' + Math.round(lo.y) + '、最高 ' + Math.round(hi.y) + '、現在 ' + Math.round(last.y) + '。'
+    });
+
+    ZONES.forEach(function (z) {
+      svg.appendChild(svgEl('rect', { 'class': 'band z-' + z.key, x: m.l, y: sy(z.to), width: pw, height: sy(z.from) - sy(z.to) }));
+    });
+    [0, 25, 50, 75, 100].forEach(function (v) {
+      svg.appendChild(svgEl('line', { 'class': 'gridline', x1: m.l, x2: m.l + pw, y1: sy(v), y2: sy(v) }));
+      svg.appendChild(svgEl('text', { 'class': 'tick', x: m.l - 6, y: sy(v) + 3.5, 'text-anchor': 'end' }, String(v)));
+    });
+
+    // Month labels along the bottom, thinned so they never touch.
+    var months = [];
+    var d = new Date(x0);
+    d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
+    while (d.getTime() <= x1) {
+      months.push(d);
+      d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
+    }
+    var step = Math.max(1, Math.ceil(months.length / Math.max(1, Math.floor(pw / 46))));
+    months.forEach(function (mo, i) {
+      if ((months.length - 1 - i) % step !== 0) return;
+      var px = sx(mo.getTime());
+      if (px < m.l + 10 || px > m.l + pw - 10) return;
+      svg.appendChild(svgEl('text', { 'class': 'tick', x: px, y: H - 5, 'text-anchor': 'middle' }, (mo.getUTCMonth() + 1) + '月'));
+    });
+
+    var path = '';
+    pts.forEach(function (p, i) { path += (i ? 'L' : 'M') + sx(p.x).toFixed(1) + ' ' + sy(p.y).toFixed(1); });
+    svg.appendChild(svgEl('path', { 'class': 'line', d: path }));
+    svg.appendChild(svgEl('circle', { 'class': 'dot', cx: sx(last.x), cy: sy(last.y), r: 4 }));
+
+    var cross = svgEl('line', { 'class': 'cross', y1: m.t, y2: m.t + ph, visibility: 'hidden' });
+    var mark = svgEl('circle', { 'class': 'dot', r: 4.5, visibility: 'hidden' });
+    svg.appendChild(cross);
+    svg.appendChild(mark);
+    var hit = svgEl('rect', { x: m.l, y: 0, width: pw, height: H, fill: 'transparent' });
+    svg.appendChild(hit);
+    host.appendChild(svg);
+
+    var tip = el('div', { 'class': 'tip', hidden: '' });
+    host.appendChild(tip);
+
+    function nearest(px) {
+      var t = x0 + (px - m.l) / pw * (x1 - x0);
+      var a = 0, b = pts.length - 1;
+      while (b - a > 1) { var mid = (a + b) >> 1; if (pts[mid].x < t) a = mid; else b = mid; }
+      return Math.abs(pts[a].x - t) <= Math.abs(pts[b].x - t) ? pts[a] : pts[b];
+    }
+    function show(ev) {
+      var box = host.getBoundingClientRect();
+      var p = nearest(Math.max(m.l, Math.min(m.l + pw, ev.clientX - box.left)));
+      var cx = sx(p.x), cy = sy(p.y);
+      cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('visibility', 'visible');
+      mark.setAttribute('cx', cx); mark.setAttribute('cy', cy); mark.setAttribute('visibility', 'visible');
+      tip.textContent = '';
+      tip.appendChild(el('span', null, fmtDay.format(new Date(p.x))));
+      tip.appendChild(el('b', null, String(Math.round(p.y))));
+      tip.appendChild(document.createTextNode(' ' + ratingOf(p.y, p.rating)));
+      tip.hidden = false;
+      var tw = tip.offsetWidth, th = tip.offsetHeight;
+      var left = cx + 10 + tw > W ? cx - 10 - tw : cx + 10;
+      tip.style.left = Math.max(0, left) + 'px';
+      tip.style.top = Math.max(0, Math.min(H - th, cy - th - 8)) + 'px';
+    }
+    function hide() {
+      cross.setAttribute('visibility', 'hidden');
+      mark.setAttribute('visibility', 'hidden');
+      tip.hidden = true;
+    }
+    hit.addEventListener('pointermove', show);
+    hit.addEventListener('pointerdown', show);
+    hit.addEventListener('pointerleave', hide);
+    hit.addEventListener('pointercancel', hide);
+  }
+  function renderTrend(history) {
+    trendPoints = cleanPoints(history && history.data);
+    $('fng-trend').hidden = trendPoints.length < 2;
+    drawTrend();
+  }
+
+  // Spot VIX and its change from the previous day's last value.
+  function renderVixSpot(v) {
+    var box = $('vix-spot');
+    box.textContent = '';
+    var pts = cleanPoints(v && v.data);
+    var last = pts.length ? pts[pts.length - 1] : null;
+    if (!last) { $('vix-note').textContent = 'チャートは先物に連動する CFD（参考値）'; return; }
+    var prev = null;
+    var today = Math.floor(last.x / DAY_MS);
+    for (var i = pts.length - 2; i >= 0; i--) {
+      if (Math.floor(pts[i].x / DAY_MS) < today) { prev = pts[i]; break; }
+    }
+    var a = el('span');
+    a.appendChild(el('span', { 'class': 'k' }, '現物'));
+    a.appendChild(el('b', null, last.y.toFixed(2)));
+    box.appendChild(a);
+    var change = '';
+    if (prev && prev.y > 0) {
+      var d = last.y - prev.y;
+      change = signed(d, 2) + '（' + signed(d / prev.y * 100, 1) + '%）';
+      var b = el('span');
+      b.appendChild(el('span', { 'class': 'k' }, '前日比'));
+      b.appendChild(document.createTextNode(change));
+      box.appendChild(b);
+    }
+    setGlance('vix', last.y.toFixed(2), change ? '前日比 ' + change : '');
+    $('vix-note').textContent = '現物は CNN ' + stampOf(last.x) + '。チャートは先物に連動する CFD（参考値）';
+  }
+
+  function renderCnnError() {
+    var body = $('fng-main');
+    body.textContent = '';
+    $('fng-asof').textContent = '';
+    $('fng-trend').hidden = true;
+    $('glance').hidden = true;
+    renderVixSpot(null);
+    var msg = el('div', { 'class': 'fng-msg' });
+    msg.appendChild(el('strong', null, 'Fear & Greed を読み込めませんでした'));
+    msg.appendChild(document.createTextNode('CNN 側が読み込みを受け付けなかったか、通信に失敗しました。'));
+    var actions = el('div', { 'class': 'fng-actions' });
+    var retry = el('button', { 'class': 'btn', type: 'button' }, '再読み込み');
+    retry.addEventListener('click', loadCnn);
+    actions.appendChild(retry);
+    actions.appendChild(el('a', { href: 'https://edition.cnn.com/markets/fear-and-greed', target: '_blank', rel: 'noopener nofollow' }, 'CNN のページで見る'));
+    msg.appendChild(actions);
+    body.appendChild(msg);
+  }
+
+  var cnnLastOk = 0;
+  var cnnBusy = false;
+  function loadCnn() {
+    if (cnnBusy) return;
+    cnnBusy = true;
+    fetch(CNN_URL, { cache: 'no-store' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (j) {
+        var f = j && j.fear_and_greed;
+        if (!f || num(f.score) === null) throw new Error('unexpected data');
+        renderFng(f);
+        renderTrend(j.fear_and_greed_historical);
+        renderVixSpot(j.market_volatility_vix);
+        cnnLastOk = Date.now();
+        $('cnn-fetched').textContent = '最終取得 ' + fmtTime.format(new Date());
+      })
+      .catch(function () {
+        if (!cnnLastOk) renderCnnError();
+      })
+      .then(function () { cnnBusy = false; });
+  }
+
+  // ---- start ----
+  applyTheme();
+  applyFeedLabels();
+  buildChoice('feed-group', [{ key: 'rt', label: FEEDS.rt.label }, { key: 'ex', label: FEEDS.ex.label }], feed, function (key) {
+    feed = key;
+    save('mb.feed', feed);
+    applyFeedLabels();
+    mountStrip();
+    mountCharts();
+  });
+  buildChoice('interval-group', INTERVALS, interval, function (key) {
+    interval = key;
+    save('mb.interval', interval);
+    mountCharts();
+  });
+  buildChoice('chart-tabs', CHARTS.map(function (c) { return { key: c.id, label: c.id.toUpperCase() }; }), activeChart, pickChart);
+  $('glance-fng').addEventListener('click', function () {
+    $('card-fng').scrollIntoView({ block: 'start' });
+  });
+  $('glance-vix').addEventListener('click', function () {
+    pickChart('vix');
+    $('chart-tabs').scrollIntoView({ block: 'start' });
+  });
+  mountAll();
+  tick();
+  window.setInterval(tick, 1000);
+  loadCnn();
+  window.setInterval(function () { if (!document.hidden) loadCnn(); }, CNN_EVERY_MS);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && Date.now() - cnnLastOk > CNN_EVERY_MS) loadCnn();
+  });
+
+  $('theme-btn').addEventListener('click', function () {
+    themeChoice = THEMES[(THEMES.indexOf(themeChoice) + 1) % THEMES.length];
+    save('mb.theme', themeChoice);
+    applyTheme();
+    mountAll();
+  });
+  if (darkQuery && darkQuery.addEventListener) {
+    darkQuery.addEventListener('change', function () {
+      if (themeChoice === 'auto') mountAll();
+    });
+  }
+  if (narrowQuery && narrowQuery.addEventListener) {
+    narrowQuery.addEventListener('change', function () { mountStrip(); mountCharts(); });
+  }
+  if (window.ResizeObserver) {
+    var redraw = 0;
+    new ResizeObserver(function () {
+      window.cancelAnimationFrame(redraw);
+      redraw = window.requestAnimationFrame(drawTrend);
+    }).observe($('fng-chart'));
+  } else {
+    window.addEventListener('resize', drawTrend);
+  }
+})();
+</script>
+</body>
+</html>
