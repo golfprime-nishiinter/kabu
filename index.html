@@ -14,9 +14,9 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <title>マーケットボード</title>
 <style>
-/* Layout: one screen on a wide monitor. Quote strip on top; three chart+RSI tiles;
-   below them VIX and the Fear & Greed card (gauge + one-year trend); news runs down the right edge.
-   Narrower screens move news below, and a phone stacks everything in one column. */
+/* Layout: one screen on a wide monitor. Quote strip on top; a row of four chart+RSI tiles
+   (three ETFs and dollar-yen); below them VIX, the Fear & Greed card (gauge + one-year trend) and news.
+   Narrower screens regroup the tiles, and a phone shows one chart at a time. */
 :root {
   color-scheme: light;
   --page: #f9f9f9;
@@ -144,22 +144,24 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .strip .q + .q:nth-child(even) { border-left: 1px solid var(--hairline); }
 .strip .q:nth-child(n + 3) { border-top: 1px solid var(--hairline); }
 .strip .q-in { transform-origin: 0 0; }
+.strip .q-wide { grid-column: 1 / -1; min-height: 72px; border-top: 1px solid var(--hairline); }
 .strip .q-in iframe { height: 320px !important; }
 
 .grid {
   display: grid;
   gap: 12px;
   min-height: 0;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(280px, 340px);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   grid-template-rows: minmax(300px, 1fr) clamp(300px, 36vh, 440px);
   grid-template-areas:
-    "spxl soxl tqqq news"
+    "spxl soxl tqqq fx"
     "vix  fng  fng  news";
 }
 .a-spxl { grid-area: spxl; }
 .a-soxl { grid-area: soxl; }
 .a-tqqq { grid-area: tqqq; }
 .a-vix { grid-area: vix; }
+.a-fx { grid-area: fx; }
 .a-fng { grid-area: fng; }
 .a-news { grid-area: news; }
 
@@ -255,18 +257,18 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 @media (max-width: 1279px) {
   .grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    grid-template-rows: clamp(320px, 50vh, 620px) clamp(300px, 36vh, 440px) 480px;
+    grid-template-rows: clamp(320px, 50vh, 620px) clamp(300px, 36vh, 440px) minmax(300px, auto);
     grid-template-areas:
       "spxl soxl tqqq"
-      "vix  fng  fng"
-      "news news news";
+      "vix  fx   news"
+      "fng  fng  fng";
   }
 }
 @media (max-width: 999px) {
   .grid {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: none;
-    grid-template-areas: "spxl" "soxl" "tqqq" "vix" "fng" "news";
+    grid-template-areas: "spxl" "soxl" "tqqq" "vix" "fx" "fng" "news";
   }
   .card.chart { height: 440px; }
   .card.a-vix { height: 380px; }
@@ -326,6 +328,10 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
       <p class="card-note" id="vix-note">チャートは先物に連動する CFD（参考値）</p>
       <div class="widget" id="w-vix"></div>
     </section>
+    <section class="card chart a-fx" id="card-fx" aria-labelledby="h-fx">
+      <div class="card-head"><h2 id="h-fx">ドル円</h2><span class="sub">USD/JPY</span><span class="tag">下段 RSI(14)</span></div>
+      <div class="widget" id="w-fx"></div>
+    </section>
     <section class="card fng a-fng" id="card-fng" aria-labelledby="h-fng">
       <div class="card-head"><h2 id="h-fng">Fear &amp; Greed</h2><span class="sub">CNN</span><span class="tag" id="fng-asof"></span></div>
       <div class="fng-body">
@@ -367,20 +373,23 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
       label: 'リアルタイム',
       tag: 'CFD参考値・リアルタイム',
       note: 'リアルタイム表示は Capital.com の CFD 参考値です。取引所の約定値とはわずかに差が出ます。',
-      symbols: { spxl: 'CAPITALCOM:SPXL', soxl: 'CAPITALCOM:SOXL', tqqq: 'CAPITALCOM:TQQQ', vix: 'CAPITALCOM:VIX' }
+      symbols: { spxl: 'CAPITALCOM:SPXL', soxl: 'CAPITALCOM:SOXL', tqqq: 'CAPITALCOM:TQQQ', vix: 'CAPITALCOM:VIX', fx: 'FX:USDJPY' }
     },
     ex: {
       label: '取引所（15分遅れ）',
       tag: '取引所データ・15分遅れ',
       note: '取引所データ（Cboe One）は埋め込み表示では15分遅れです。',
-      symbols: { spxl: 'AMEX:SPXL', soxl: 'AMEX:SOXL', tqqq: 'NASDAQ:TQQQ', vix: 'CAPITALCOM:VIX' }
+      symbols: { spxl: 'AMEX:SPXL', soxl: 'AMEX:SOXL', tqqq: 'NASDAQ:TQQQ', vix: 'CAPITALCOM:VIX', fx: 'FX:USDJPY' }
     }
   };
   var CHARTS = [
-    { id: 'spxl', title: 'SPXL', rsi: true },
-    { id: 'soxl', title: 'SOXL', rsi: true },
-    { id: 'tqqq', title: 'TQQQ', rsi: true },
-    { id: 'vix', title: 'VIX CFD', rsi: false }
+    // panel: gets a full quote panel (with pre-market / after-hours) in the phone quote block.
+    // The dollar-yen rate trades around the clock, so it gets the one-line quote instead.
+    { id: 'spxl', title: 'SPXL', tab: 'SPXL', rsi: true, panel: true },
+    { id: 'soxl', title: 'SOXL', tab: 'SOXL', rsi: true, panel: true },
+    { id: 'tqqq', title: 'TQQQ', tab: 'TQQQ', rsi: true, panel: true },
+    { id: 'vix', title: 'VIX CFD', tab: 'VIX', rsi: false, panel: true },
+    { id: 'fx', title: 'ドル円', tab: 'ドル円', rsi: true, panel: false }
   ];
   var INTERVALS = [
     { key: '5', label: '5分' },
@@ -511,6 +520,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
     $('strip-sub').textContent = '';
     var symbols = FEEDS[feed].symbols;
     CHARTS.forEach(function (c) {
+      if (!c.panel) return;
       var cell = el('div', { 'class': 'q' });
       var inner = el('div', { 'class': 'q-in' });
       cell.appendChild(inner);
@@ -519,6 +529,12 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
         symbol: symbols[c.id], width: '100%', isTransparent: true, colorTheme: effectiveTheme(), locale: 'ja'
       });
     });
+    var rest = CHARTS.filter(function (c) { return !c.panel; });
+    if (rest.length) {
+      var wide = el('div', { 'class': 'q-wide' });
+      host.appendChild(wide);
+      mount(wide, 'embed-widget-tickers.js', stripConfig(rest));
+    }
     fitQuotes();
   }
   function mountCharts() {
@@ -925,7 +941,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
     save('mb.interval', interval);
     mountCharts();
   });
-  buildChoice('chart-tabs', CHARTS.map(function (c) { return { key: c.id, label: c.id.toUpperCase() }; }), activeChart, pickChart);
+  buildChoice('chart-tabs', CHARTS.map(function (c) { return { key: c.id, label: c.tab }; }), activeChart, pickChart);
   $('glance-fng').addEventListener('click', function () {
     $('card-fng').scrollIntoView({ block: 'start' });
   });
