@@ -26,6 +26,8 @@ const NOT_NEWS = /株価・株式情報|投資信託情報|基準価[格額]|掲
 const CRYPTO = /仮想通貨|暗号資産|ビットコイン|イーサリアム|BTC|XRP|リップル/i;
 const OTHER_MARKETS = /欧州株|日本株|東京株|東証|日経平均|日経半導体|中国株|香港株|上海株|韓国株|インド株/;
 const US_MARKET = /米国|米株|NY|ニューヨーク|ウォール街|ナスダック|ダウ|S&P|FRB|FOMC/i;
+// Press releases and video listings, not articles.
+const SKIP_SOURCES = /PR TIMES|TVer/;
 
 const feedUrl = (q) =>
   'https://news.google.com/rss/search?q=' + encodeURIComponent(q + ' when:2d') + '&hl=ja&gl=JP&ceid=JP:ja';
@@ -88,7 +90,7 @@ export function refine(all, now = Date.now()) {
     .map((x) => ({ ...x, t: cleanTitle(x.t), s: cleanSource(x.s) }))
     .filter((x) => new Date(x.d).getTime() >= cutoff)
     .filter((x) => /[぀-ヿ一-鿿]/.test(x.t) && squash(x.t).length >= 8)
-    .filter((x) => !NOT_NEWS.test(x.t) && !CRYPTO.test(x.t))
+    .filter((x) => !NOT_NEWS.test(x.t) && !CRYPTO.test(x.t) && !SKIP_SOURCES.test(x.s))
     .filter((x) => !OTHER_MARKETS.test(x.t) || US_MARKET.test(x.t))
     .sort((a, b) => (a.d < b.d ? 1 : a.d > b.d ? -1 : 0));
   for (const x of sorted) {
