@@ -229,6 +229,15 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .tip span { color: var(--ink-2); display: block; font-size: 11px; }
 .tip b { font-weight: 650; }
 
+/* ---- news (Japanese headlines) ---- */
+.news-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 12px 10px; -webkit-overflow-scrolling: touch; }
+.news-list ol { list-style: none; margin: 0; padding: 0; }
+.news-list li { border-top: 1px solid var(--hairline); padding: 9px 0; }
+.news-list li:first-child { border-top: 0; padding-top: 4px; }
+.news-list a { display: block; color: var(--ink); text-decoration: none; font-size: 14px; line-height: 1.45; }
+.news-list a:hover { text-decoration: underline; }
+.news-meta { color: var(--ink-2); font-size: 12px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+
 .foot { color: var(--ink-2); font-size: 12px; display: flex; flex-wrap: wrap; gap: 2px 16px; }
 .foot a { color: inherit; }
 
@@ -328,14 +337,15 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
       </div>
     </section>
     <section class="card a-news" aria-labelledby="h-news">
-      <div class="card-head"><h2 id="h-news">米国株ニュース</h2><span class="sub">TradingView・英語</span></div>
+      <div class="card-head"><h2 id="h-news">米国株ニュース</h2><span class="sub" id="news-sub"></span><span class="tag" id="news-asof"></span></div>
+      <div class="news-list" id="news-list" hidden></div>
       <div class="widget" id="w-news"></div>
     </section>
   </main>
 
   <footer class="foot">
     <span id="feed-note"></span>
-    <span>価格・チャート・ニュース: <a href="https://jp.tradingview.com/" target="_blank" rel="noopener nofollow">TradingView</a></span>
+    <span>価格・チャート: <a href="https://jp.tradingview.com/" target="_blank" rel="noopener nofollow">TradingView</a></span>
     <span>Fear &amp; Greed と VIX 現物: <a href="https://edition.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener nofollow">CNN Business</a>（5分ごと）</span>
     <span id="cnn-fetched"></span>
     <span>表示は参考値です。投資の判断はご自身でお願いします。</span>
@@ -381,6 +391,10 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   ];
   var CNN_URL = 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata';
   var CNN_EVERY_MS = 5 * 60 * 1000;
+  // Japanese headlines, collected twice an hour by the repository's "news" workflow.
+  var NEWS_URL = 'https://raw.githubusercontent.com/golfprime-nishiinter/kabu/news-data/news.json';
+  var NEWS_EVERY_MS = 10 * 60 * 1000;
+  var NEWS_STALE_MS = 24 * 60 * 60 * 1000;
   var DAY_MS = 24 * 60 * 60 * 1000;
   var ZONES = [
     { key: 'xfear', from: 0, to: 25, label: '極度の恐怖' },
@@ -540,7 +554,59 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
       });
     });
   }
+  // News: Japanese headlines when the collected file is there and fresh; otherwise TradingView's
+  // English feed, so the card is never empty.
+  var newsJa = false;
+  function ago(iso) {
+    var min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+    if (min < 60) return min + '分前';
+    if (min < 60 * 24) return Math.round(min / 60) + '時間前';
+    return Math.round(min / (60 * 24)) + '日前';
+  }
+  function renderNews(data) {
+    var box = $('news-list');
+    box.textContent = '';
+    var list = el('ol');
+    data.items.forEach(function (x) {
+      if (!x || typeof x.t !== 'string' || !/^https:\/\//.test(String(x.u))) return;
+      var li = el('li');
+      li.appendChild(el('a', { href: x.u, target: '_blank', rel: 'noopener nofollow' }, x.t));
+      li.appendChild(el('div', { 'class': 'news-meta' }, (x.s ? x.s + '・' : '') + ago(x.d)));
+      list.appendChild(li);
+    });
+    box.appendChild(list);
+    box.hidden = false;
+    $('w-news').textContent = '';
+    $('w-news').hidden = true;
+    $('news-sub').textContent = '日本語・Google ニュース経由';
+    $('news-asof').textContent = fmtTime.format(new Date(data.updated)).slice(0, 5) + ' 更新';
+    newsJa = true;
+  }
+  function loadNews() {
+    fetch(NEWS_URL, { cache: 'no-store' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (d) {
+        var fresh = d && Array.isArray(d.items) && d.items.length && Date.now() - new Date(d.updated).getTime() < NEWS_STALE_MS;
+        if (!fresh) throw new Error('no fresh headlines');
+        renderNews(d);
+      })
+      .catch(function () {
+        if (newsJa) return;
+        $('news-list').hidden = true;
+        $('w-news').hidden = false;
+        $('news-sub').textContent = 'TradingView・英語';
+        $('news-asof').textContent = '';
+        if (!$('w-news').firstChild) mountNewsWidget();
+      });
+  }
   function mountNews() {
+    if (newsJa) return;
+    if ($('w-news').firstChild) mountNewsWidget();
+  }
+  function mountNewsWidget() {
     mount('w-news', 'embed-widget-timeline.js', {
       feedMode: 'market',
       market: 'stock',
@@ -871,7 +937,9 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   tick();
   window.setInterval(tick, 1000);
   loadCnn();
+  loadNews();
   window.setInterval(function () { if (!document.hidden) loadCnn(); }, CNN_EVERY_MS);
+  window.setInterval(function () { if (!document.hidden) loadNews(); }, NEWS_EVERY_MS);
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden && Date.now() - cnnLastOk > CNN_EVERY_MS) loadCnn();
   });
