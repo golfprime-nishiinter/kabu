@@ -89,6 +89,7 @@ const COMPONENTS = [
   ['junk_bond_demand', '低格付け債の需要']
 ];
 const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
+const MONTH_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 // ---------- small helpers ----------
 function arg(name, fallback) {
@@ -678,12 +679,20 @@ function brief(facts, out) {
   if (s.lev1 && s.lev3) L.push('3倍レバレッジ型の概算（毎日3倍・経費は無視）: 1か月後 中央値 ' + signed(s.lev1.med) + '・最悪 ' + signed(s.lev1.min) + '／3か月後 中央値 ' + signed(s.lev3.med) + '・最悪 ' + signed(s.lev3.min));
   L.push('');
   L.push('=== 書き方 ===');
-  L.push('1. ウェブ検索を4〜5回まで使い、今日の米国株が動いた理由と、その日の気になるニュースを調べる（例:「米国株 ' + t.date + '」「Wall Street stocks ' + t.date + '」「半導体 AI 株 ニュース」「FRB 金利 見通し」「来週 米国 経済指標 予定」）。検索語に個人名や非公開の情報は入れない。');
+  const [yy, mm, dd] = t.date.split('-').map(Number);
+  const en = MONTH_EN[mm - 1] + ' ' + dd + ' ' + yy;
+  L.push('1. ウェブ検索を5回まで使い、' + jpDate(t.date) + '（米国時間）の米国株が動いた理由と、その日の気になるニュースを調べる。');
+  L.push('   ・当日の記事は出たばかりで、普通の検索では古い記事ばかりが出やすい。WebSearch で mode を選べる場合は、最初の3回は必ず「extended」を使う。');
+  L.push('   ・検索語には英語の日付を入れる。例:「Wall Street stocks close ' + en + ' S&P 500 Nasdaq」「stock market today ' + en + ' why stocks moved」「Fed rate expectations Treasury yields ' + en + '」「Nvidia semiconductor AI stocks ' + en + '」「Wall Street week ahead economic calendar ' + MONTH_EN[mm - 1] + ' ' + yy + '」。');
+  L.push('   ・検索結果の日付を必ず確かめる。別の年の記事や、3日以上前の記事を当日の出来事として書かない。上の数値（S&P500 の終値や前日比）と合っている記事が当日の記事。');
+  L.push('   ・検索語に個人名や非公開の情報は入れない。');
   L.push('2. ' + path.join(out, 'memo.template.json') + ' と同じ形で ' + path.join(out, 'memo.json') + ' を書く。すべて日本語・です/ます調・投資の初心者にも分かる言葉で。');
   L.push('   headline: 今日の相場を一言で（30字以内）。');
   L.push('   summary: 今日何が起きたか、いまの市場の状態（2〜3文、160字以内）。Fear & Greed の水準にも触れる。');
   L.push('   news: その日の気になるニュースを3〜5件。h=見出し（40字以内）、t=要約（2〜3文、140字以内。何が起きて、なぜ株価に関係するのか）、s=情報源の名前、u=その記事のURL（https、検索結果に実際に出てきたものだけ）。');
   L.push('         選ぶ目安: 相場全体を動かした材料／金利・FRB・物価／AI・半導体・大型ハイテク（SOXL・TQQQ に関係）／ドル円／これから数日の重要な予定（経済指標・FRB会合・決算）。同じ話題を重ねない。検索で確認できた内容だけを書く。');
+  L.push('         少なくとも2件は当日（または前日）の記事から書く。それより古い話題は、いまの相場の背景として必要なときに2件まで、要約の中に日付を入れて書く。');
+  L.push('         当日の記事がどうしても見つからないときは、上の数値から分かる事実だけで summary を書く（「確認できませんでした」とは書かない）。');
   L.push('   fngNote: Fear & Greed について1〜2文（120字以内）。今の水準と前日・1週間前からの変化、内訳、上の「この1年の実績」があればその「まとめ」の回数をそのまま使って触れる（回数が少ないことも書く）。');
   L.push('   notes: 上位' + SHOWN + '件の日付ごとに、当時何が起きていた局面で、その後どうなったかを1〜2文（90字以内）。当時の出来事に確信がない日付は空文字にする。');
   L.push('   takeaway: 集計から言えること・言えないことを2〜3文（200字以内）。似た局面でも結果はばらつくこと、SPXL・SOXL・TQQQ のような3倍型は下落時の傷が大きくなることに触れる。売買の推奨や断定的な予想は書かない。');
