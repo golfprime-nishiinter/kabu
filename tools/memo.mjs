@@ -442,12 +442,18 @@ async function collect() {
     if (n > 20 && worst > 0.002) throw new Error('S&P 500 figures from ' + name + ' and FRED disagree by ' + round(worst * 100, 2) + '%');
   }
 
-  const cal = buildCalendar(archSpx, fredSpx, cnnSpx, fredVix, cnnVix);
+  let cal = buildCalendar(archSpx, fredSpx, cnnSpx, fredVix, cnnVix);
+  // Use only the unbroken stretch that ends today: a hole between two sources must not be read as a price move.
+  for (let i = cal.length - 1; i > 0; i--) {
+    if ((Date.parse(cal[i].d) - Date.parse(cal[i - 1].d)) / 86400000 > 10) {
+      console.error('history has a gap before ' + cal[i].d + '; using the days from there on');
+      cal = cal.slice(i);
+      break;
+    }
+  }
   const T = cal.length - 1;
   if (cal[T].d !== latest) throw new Error('calendar ends on ' + cal[T].d + ', expected ' + latest);
-  for (let i = cal.length - 300; i < cal.length; i++) {
-    if (i > 0 && (Date.parse(cal[i].d) - Date.parse(cal[i - 1].d)) / 86400000 > 5) throw new Error('missing trading days before ' + cal[i].d);
-  }
+  if (cal.length < LOOKBACK + RECENT_GAP + 250) throw new Error('only ' + cal.length + ' trading days of unbroken history');
   const { f, analogs, stats } = analyze(cal);
   const t = f[T];
 
@@ -629,7 +635,7 @@ function build() {
       path: a.path,
       note: text(notes[a.d], 'notes.' + a.d, 90, false)
     })),
-    stats: { n: s.n, since: s.since, w1: s.w1, m1: s.m1, m3: s.m3, low: s.low, lev1: s.lev1, lev3: s.lev3, base: s.base },
+    stats: { n: s.n, since: s.since, w1: s.w1, m1: s.m1, m3: s.m3, low: s.low, lev1: s.lev1, lev3: s.lev3, base: s.base, days: facts.analogs.map((a) => a.d) },
     takeaway
   };
   if (errors.length) {

@@ -1116,6 +1116,11 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
       if (st.low) extra.push('その後3か月の途中で最も下がった幅は、中央値 ' + pctText(st.low.med) + '、最悪 ' + pctText(st.low.min) + '。');
       if (st.lev1 && st.lev3) extra.push('3倍型（SPXL など）に置きかえた概算では、1か月後が中央値 ' + pctText(st.lev1.med) + '・最悪 ' + pctText(st.lev1.min) + '、3か月後が中央値 ' + pctText(st.lev3.med) + '・最悪 ' + pctText(st.lev3.min) + '。');
       if (extra.length) body.appendChild(el('p', { 'class': 'memo-hint' }, extra.join('')));
+      var days = (Array.isArray(st.days) ? st.days : []).map(function (iso) {
+        var m = /^(\d{4})-(\d{2})-\d{2}$/.exec(String(iso));
+        return m ? m[1] + '年' + (+m[2]) + '月' : '';
+      }).filter(Boolean);
+      if (days.length) body.appendChild(el('p', { 'class': 'memo-hint' }, '集計した ' + days.length + ' 回: ' + days.join('、')));
     }
 
     if (d.takeaway) {
