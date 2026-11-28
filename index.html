@@ -15,7 +15,8 @@
 <title>マーケットボード</title>
 <style>
 /* Layout: one screen on a wide monitor. Quote strip on top; a row of four chart+RSI tiles
-   (three ETFs and dollar-yen); below them VIX, the Fear & Greed card (gauge + one-year trend) and news.
+   (three ETFs and dollar-yen); below them VIX, the Fear & Greed card (gauge + one-year trend) and the
+   daily memo (the day's market in words, with the past days that looked most like it).
    Narrower screens regroup the tiles, and a phone shows one chart at a time. */
 :root {
   color-scheme: light;
@@ -155,7 +156,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   grid-template-rows: minmax(300px, 1fr) clamp(300px, 36vh, 440px);
   grid-template-areas:
     "spxl soxl tqqq fx"
-    "vix  fng  fng  news";
+    "vix  fng  fng  memo";
 }
 .a-spxl { grid-area: spxl; }
 .a-soxl { grid-area: soxl; }
@@ -163,7 +164,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .a-vix { grid-area: vix; }
 .a-fx { grid-area: fx; }
 .a-fng { grid-area: fng; }
-.a-news { grid-area: news; }
+.a-memo { grid-area: memo; }
 
 /* ---- VIX spot line ---- */
 .vix-spot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -231,20 +232,54 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .tip span { color: var(--ink-2); display: block; font-size: 11px; }
 .tip b { font-weight: 650; }
 
-/* ---- news (Japanese headlines) ---- */
-.news-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 12px 10px; -webkit-overflow-scrolling: touch; }
-.news-list ol { list-style: none; margin: 0; padding: 0; }
-.news-list li { border-top: 1px solid var(--hairline); padding: 9px 0; }
-.news-list li:first-child { border-top: 0; padding-top: 4px; }
-.news-list a { display: block; color: var(--ink); text-decoration: none; font-size: 14px; line-height: 1.45; }
-.news-list a:hover { text-decoration: underline; }
-.news-meta { color: var(--ink-2); font-size: 12px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+/* ---- daily memo ---- */
+.memo-body { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 14px 14px; -webkit-overflow-scrolling: touch; }
+.memo-body p { margin: 0 0 10px; }
+.memo-body h3 { margin: 16px 0 6px; font-size: 13px; font-weight: 650; color: var(--ink-2); }
+.memo-body h3.memo-headline { margin: 0 0 6px; font-size: 17px; line-height: 1.4; color: var(--ink); }
+.memo-figs { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 8px; font-variant-numeric: tabular-nums; }
+.memo-figs .k { color: var(--ink-2); font-size: 12px; margin-right: 5px; }
+.memo-figs b { font-weight: 650; margin-right: 5px; }
+.memo-state { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 4px; padding: 0; list-style: none; }
+.memo-state li { font-size: 12px; background: var(--wash); border-radius: 6px; padding: 2px 8px; font-variant-numeric: tabular-nums; }
+.memo-drivers { margin: 0; padding-left: 18px; }
+.memo-drivers li { margin-bottom: 4px; }
+.memo-drivers a { color: var(--ink-2); font-size: 12px; white-space: nowrap; margin-left: 4px; }
+.memo-hint { color: var(--ink-2); font-size: 12px; }
+.analog { border-top: 1px solid var(--hairline); padding: 10px 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(96px, 34%); gap: 2px 12px; }
+.analog-when { font-weight: 650; font-variant-numeric: tabular-nums; }
+.analog-label { color: var(--ink-2); font-size: 12px; }
+.analog-then { color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+.fwd { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 8px; margin: 6px 0 0; }
+.fwd div { min-width: 0; }
+.fwd dt { color: var(--ink-2); font-size: 11.5px; }
+.fwd dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Direction marks: shape plus colour (cool = up, warm = down), beside figures that stay in the text ink. */
+.dir { font-size: 9px; margin-right: 3px; vertical-align: 1px; }
+.dir.up { color: var(--greed-2); }
+.dir.down { color: var(--fear-2); }
+.memo-body p.analog-note { grid-column: 1 / -1; margin: 6px 0 0; font-size: 13px; }
+.spark { position: relative; min-height: 64px; grid-row: 1 / span 2; grid-column: 2; }
+.spark svg { display: block; position: absolute; inset: 0; touch-action: pan-y; }
+.spark .zero { stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.7; }
+.spark .line { fill: none; stroke: var(--ink); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+.spark .pos { fill: var(--greed-2); opacity: var(--band-alpha); }
+.spark .neg { fill: var(--fear-2); opacity: var(--band-alpha); }
+.spark .dot { fill: var(--ink); stroke: var(--surface); stroke-width: 2; }
+.spark .cross { stroke: var(--ink-2); stroke-width: 1; }
+.memo-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
+.memo-table th, .memo-table td { padding: 4px 0 4px 8px; text-align: right; border-top: 1px solid var(--hairline); white-space: nowrap; font-weight: 600; }
+.memo-table th:first-child { text-align: left; padding-left: 0; color: var(--ink-2); font-weight: 400; white-space: normal; }
+.memo-table thead th { border-top: 0; color: var(--ink-2); font-weight: 400; font-size: 12px; }
+.memo-table tr.base td, .memo-table tr.base th { font-weight: 400; color: var(--ink-2); }
+.memo-foot { color: var(--ink-2); font-size: 12px; margin-top: 12px; }
+.memo-msg { color: var(--ink-2); font-size: 13px; padding: 8px 0; }
 
 .foot { color: var(--ink-2); font-size: 12px; display: flex; flex-wrap: wrap; gap: 2px 16px; }
 .foot a { color: inherit; }
 
 /* Phone-only pieces: two at-a-glance tiles and a tab bar that shows one chart at a time. */
-.glance, .chart-tabs { display: none; }
+.glance, .chart-tabs, .tile.memo-tease { display: none; }
 .tile {
   background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px;
   padding: 8px 12px; min-width: 0; text-align: left; font: inherit; color: var(--ink); cursor: pointer;
@@ -253,6 +288,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .tile-k { font-size: 12px; color: var(--ink-2); }
 .tile-v { font-size: 24px; font-weight: 650; line-height: 1.2; }
 .tile-s { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.memo-tease .tile-v { font-size: 15px; line-height: 1.4; margin: 1px 0; }
 
 @media (max-width: 1279px) {
   .grid {
@@ -260,7 +296,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
     grid-template-rows: clamp(320px, 50vh, 620px) clamp(300px, 36vh, 440px) minmax(300px, auto);
     grid-template-areas:
       "spxl soxl tqqq"
-      "vix  fx   news"
+      "vix  fx   memo"
       "fng  fng  fng";
   }
 }
@@ -268,17 +304,20 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   .grid {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: none;
-    grid-template-areas: "spxl" "soxl" "tqqq" "vix" "fx" "fng" "news";
+    grid-template-areas: "spxl" "soxl" "tqqq" "vix" "fx" "fng" "memo";
   }
   .card.chart { height: 440px; }
   .card.a-vix { height: 380px; }
-  .card.a-news { height: 540px; }
+  /* Stacked layouts let the memo run to its full length instead of scrolling inside the card. */
+  .card.a-memo { height: auto; }
+  .memo-body { overflow: visible; }
   .controls { margin-left: 0; }
 }
 @media (max-width: 700px) {
   .grid { display: flex; flex-direction: column; }
   .glance { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .chart-tabs { display: flex; }
+  .tile.memo-tease { display: flex; }
   .chart-tabs button { flex: 1; padding-left: 4px; padding-right: 4px; }
   .card.chart, .card.a-vix { height: 460px; }
 }
@@ -310,6 +349,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
       <button class="tile" type="button" id="glance-fng"><span class="tile-k">Fear &amp; Greed</span><span class="tile-v" id="glance-fng-v">–</span><span class="tile-s" id="glance-fng-s"></span></button>
       <button class="tile" type="button" id="glance-vix"><span class="tile-k">VIX 現物</span><span class="tile-v" id="glance-vix-v">–</span><span class="tile-s" id="glance-vix-s"></span></button>
     </div>
+    <button class="tile memo-tease" type="button" id="memo-tease" hidden><span class="tile-k">今日の相場メモ</span><span class="tile-v" id="memo-tease-v"></span><span class="tile-s" id="memo-tease-s"></span></button>
     <div class="seg chart-tabs" role="group" aria-label="表示するチャート" id="chart-tabs"></div>
     <section class="card chart a-spxl" id="card-spxl" aria-labelledby="h-spxl">
       <div class="card-head"><h2 id="h-spxl">SPXL</h2><span class="sub">S&amp;P500 ブル3倍</span><span class="tag">下段 RSI(14)</span></div>
@@ -342,10 +382,9 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
         </div>
       </div>
     </section>
-    <section class="card a-news" aria-labelledby="h-news">
-      <div class="card-head"><h2 id="h-news">米国株ニュース</h2><span class="sub" id="news-sub"></span><span class="tag" id="news-asof"></span></div>
-      <div class="news-list" id="news-list" hidden></div>
-      <div class="widget" id="w-news"></div>
+    <section class="card a-memo" id="card-memo" aria-labelledby="h-memo">
+      <div class="card-head"><h2 id="h-memo">今日の相場メモ</h2><span class="sub" id="memo-sub"></span><span class="tag" id="memo-asof"></span></div>
+      <div class="memo-body" id="memo-body"><p class="memo-msg">読み込み中…</p></div>
     </section>
   </main>
 
@@ -354,6 +393,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
     <span>価格・チャート: <a href="https://jp.tradingview.com/" target="_blank" rel="noopener nofollow">TradingView</a></span>
     <span>Fear &amp; Greed と VIX 現物: <a href="https://edition.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener nofollow">CNN Business</a>（5分ごと）</span>
     <span id="cnn-fetched"></span>
+    <span>相場メモ: S&amp;P500・VIX の履歴は <a href="https://fred.stlouisfed.org/" target="_blank" rel="noopener nofollow">FRED</a> ほか。文章は AI（Claude）が作成</span>
     <span>表示は参考値です。投資の判断はご自身でお願いします。</span>
   </footer>
 </div>
@@ -400,10 +440,10 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   ];
   var CNN_URL = 'https://production.dataviz.cnn.io/index/fearandgreed/graphdata';
   var CNN_EVERY_MS = 5 * 60 * 1000;
-  // Japanese headlines, collected twice an hour by the repository's "news" workflow.
-  var NEWS_URL = 'https://raw.githubusercontent.com/golfprime-nishiinter/kabu/news-data/news.json';
-  var NEWS_EVERY_MS = 10 * 60 * 1000;
-  var NEWS_STALE_MS = 24 * 60 * 60 * 1000;
+  // The daily memo: written once per US trading day by tools/memo.mjs and published on the daily-data branch.
+  var MEMO_URL = 'https://raw.githubusercontent.com/golfprime-nishiinter/kabu/daily-data/daily.json';
+  var MEMO_EVERY_MS = 30 * 60 * 1000;
+  var MEMO_STALE_MS = 5 * 24 * 60 * 60 * 1000;
   var DAY_MS = 24 * 60 * 60 * 1000;
   var ZONES = [
     { key: 'xfear', from: 0, to: 25, label: '極度の恐怖' },
@@ -570,71 +610,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
       });
     });
   }
-  // News: Japanese headlines when the collected file is there and fresh; otherwise TradingView's
-  // English feed, so the card is never empty.
-  var newsJa = false;
-  function ago(iso) {
-    var min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
-    if (min < 60) return min + '分前';
-    if (min < 60 * 24) return Math.round(min / 60) + '時間前';
-    return Math.round(min / (60 * 24)) + '日前';
-  }
-  function renderNews(data) {
-    var box = $('news-list');
-    box.textContent = '';
-    var list = el('ol');
-    data.items.forEach(function (x) {
-      if (!x || typeof x.t !== 'string' || !/^https:\/\//.test(String(x.u))) return;
-      var li = el('li');
-      li.appendChild(el('a', { href: x.u, target: '_blank', rel: 'noopener nofollow' }, x.t));
-      li.appendChild(el('div', { 'class': 'news-meta' }, (x.s ? x.s + '・' : '') + ago(x.d)));
-      list.appendChild(li);
-    });
-    box.appendChild(list);
-    box.hidden = false;
-    $('w-news').textContent = '';
-    $('w-news').hidden = true;
-    $('news-sub').textContent = '日本語・Google ニュース経由';
-    $('news-asof').textContent = fmtTime.format(new Date(data.updated)).slice(0, 5) + ' 更新';
-    newsJa = true;
-  }
-  function loadNews() {
-    fetch(NEWS_URL, { cache: 'no-store' })
-      .then(function (res) {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.json();
-      })
-      .then(function (d) {
-        var fresh = d && Array.isArray(d.items) && d.items.length && Date.now() - new Date(d.updated).getTime() < NEWS_STALE_MS;
-        if (!fresh) throw new Error('no fresh headlines');
-        renderNews(d);
-      })
-      .catch(function () {
-        if (newsJa) return;
-        $('news-list').hidden = true;
-        $('w-news').hidden = false;
-        $('news-sub').textContent = 'TradingView・英語';
-        $('news-asof').textContent = '';
-        if (!$('w-news').firstChild) mountNewsWidget();
-      });
-  }
-  function mountNews() {
-    if (newsJa) return;
-    if ($('w-news').firstChild) mountNewsWidget();
-  }
-  function mountNewsWidget() {
-    mount('w-news', 'embed-widget-timeline.js', {
-      feedMode: 'market',
-      market: 'stock',
-      isTransparent: true,
-      displayMode: 'regular',
-      width: '100%',
-      height: '100%',
-      colorTheme: effectiveTheme(),
-      locale: 'ja'
-    });
-  }
-  function mountAll() { mountStrip(); mountCharts(); mountNews(); }
+  function mountAll() { mountStrip(); mountCharts(); }
 
   function buildChoice(groupId, options, current, onPick) {
     var group = $(groupId);
@@ -918,12 +894,265 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
         renderTrend(j.fear_and_greed_historical);
         renderVixSpot(j.market_volatility_vix);
         cnnLastOk = Date.now();
+        // The daily memo job (tools/memo.mjs) reads the day's figures from here.
+        window.MB_DATA = { cnn: j, at: cnnLastOk };
         $('cnn-fetched').textContent = '最終取得 ' + fmtTime.format(new Date());
       })
       .catch(function () {
         if (!cnnLastOk) renderCnnError();
       })
       .then(function () { cnnBusy = false; });
+  }
+
+  // ---- daily memo: the day in words, the past days that looked most like it, and what followed ----
+  var WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+  var memoLastTry = 0;
+  var memoShown = '';
+  var sparks = [];
+  function dayOf(iso, withYear, withWeekday) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso));
+    if (!m) return '';
+    var wd = WEEKDAYS[new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay()];
+    return (withYear ? m[1] + '年' : '') + (+m[2]) + '月' + (+m[3]) + '日' + (withWeekday ? '（' + wd + '）' : '');
+  }
+  function pctText(v) { return num(v) === null ? '—' : signed(v, 1) + '%'; }
+  // A figure in the text ink with a small direction mark (shape and colour) in front of it.
+  function figure(v, text) {
+    var wrap = el('span');
+    if (num(v) !== null && v !== 0) wrap.appendChild(el('span', { 'class': 'dir ' + (v > 0 ? 'up' : 'down'), 'aria-hidden': 'true' }, v > 0 ? '▲' : '▼'));
+    wrap.appendChild(document.createTextNode(text));
+    return wrap;
+  }
+  function cleanPath(list) {
+    return (Array.isArray(list) ? list : []).filter(function (v) { return num(v) !== null; });
+  }
+
+  // One small line per past day: the S&P 500 over the following 60 trading days, as % from that day.
+  // All of them share one vertical scale so they can be compared at a glance.
+  function drawSparks() {
+    var lo = 0, hi = 0;
+    sparks.forEach(function (sp) { sp.path.forEach(function (v) { if (v < lo) lo = v; if (v > hi) hi = v; }); });
+    var pad = (hi - lo) * 0.08 || 1;
+    lo -= pad; hi += pad;
+    sparks.forEach(function (sp, index) {
+      var host = sp.host;
+      host.textContent = '';
+      var W = host.clientWidth, H = host.clientHeight;
+      var n = sp.path.length;
+      if (n < 2 || W < 60 || H < 40) return;
+      var m = { l: 2, r: 6, t: 4, b: 4 };
+      var pw = W - m.l - m.r, ph = H - m.t - m.b;
+      function sx(i) { return m.l + i / (n - 1) * pw; }
+      function sy(v) { return m.t + (hi - v) / (hi - lo) * ph; }
+      var zero = sy(0);
+      var low = Math.min.apply(null, sp.path), end = sp.path[n - 1];
+      var svg = svgEl('svg', {
+        width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, role: 'img',
+        'aria-label': 'その後' + (n - 1) + '営業日のS&P500。最も下がった時点で ' + pctText(low) + '、最後は ' + pctText(end) + '。'
+      });
+      var line = '', area = 'M' + sx(0).toFixed(1) + ' ' + zero.toFixed(1);
+      sp.path.forEach(function (v, i) {
+        line += (i ? 'L' : 'M') + sx(i).toFixed(1) + ' ' + sy(v).toFixed(1);
+        area += 'L' + sx(i).toFixed(1) + ' ' + sy(v).toFixed(1);
+      });
+      area += 'L' + sx(n - 1).toFixed(1) + ' ' + zero.toFixed(1) + 'Z';
+      // The area between the line and the starting level: cool above it, warm below it.
+      var idUp = 'spark-up-' + index, idDown = 'spark-down-' + index;
+      var defs = svgEl('defs');
+      var clipUp = svgEl('clipPath', { id: idUp });
+      clipUp.appendChild(svgEl('rect', { x: 0, y: 0, width: W, height: Math.max(0, zero) }));
+      var clipDown = svgEl('clipPath', { id: idDown });
+      clipDown.appendChild(svgEl('rect', { x: 0, y: zero, width: W, height: Math.max(0, H - zero) }));
+      defs.appendChild(clipUp);
+      defs.appendChild(clipDown);
+      svg.appendChild(defs);
+      svg.appendChild(svgEl('path', { 'class': 'pos', d: area, 'clip-path': 'url(#' + idUp + ')' }));
+      svg.appendChild(svgEl('path', { 'class': 'neg', d: area, 'clip-path': 'url(#' + idDown + ')' }));
+      svg.appendChild(svgEl('line', { 'class': 'zero', x1: m.l, x2: m.l + pw, y1: zero, y2: zero }));
+      svg.appendChild(svgEl('path', { 'class': 'line', d: line }));
+      svg.appendChild(svgEl('circle', { 'class': 'dot', cx: sx(n - 1), cy: sy(end), r: 3.5 }));
+      var cross = svgEl('line', { 'class': 'cross', y1: m.t, y2: m.t + ph, visibility: 'hidden' });
+      var mark = svgEl('circle', { 'class': 'dot', r: 4, visibility: 'hidden' });
+      svg.appendChild(cross);
+      svg.appendChild(mark);
+      var hit = svgEl('rect', { x: 0, y: 0, width: W, height: H, fill: 'transparent' });
+      svg.appendChild(hit);
+      host.appendChild(svg);
+      var tip = el('div', { 'class': 'tip', hidden: '' });
+      host.appendChild(tip);
+      function show(ev) {
+        var box = host.getBoundingClientRect();
+        var i = Math.max(0, Math.min(n - 1, Math.round((ev.clientX - box.left - m.l) / pw * (n - 1))));
+        var cx = sx(i), cy = sy(sp.path[i]);
+        cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('visibility', 'visible');
+        mark.setAttribute('cx', cx); mark.setAttribute('cy', cy); mark.setAttribute('visibility', 'visible');
+        tip.textContent = '';
+        tip.appendChild(el('span', null, i === 0 ? '当日' : i + '営業日後'));
+        tip.appendChild(el('b', null, pctText(sp.path[i])));
+        tip.hidden = false;
+        var tw = tip.offsetWidth;
+        tip.style.left = Math.max(-(box.left - 4), Math.min(W - tw, cx - tw - 8)) + 'px';
+        tip.style.top = '-6px';
+      }
+      function hide() {
+        cross.setAttribute('visibility', 'hidden');
+        mark.setAttribute('visibility', 'hidden');
+        tip.hidden = true;
+      }
+      var linger = 0;
+      function leave(ev) {
+        window.clearTimeout(linger);
+        if (ev.pointerType === 'touch') linger = window.setTimeout(hide, 2500);
+        else hide();
+      }
+      hit.addEventListener('pointermove', function (ev) { window.clearTimeout(linger); show(ev); });
+      hit.addEventListener('pointerdown', function (ev) { window.clearTimeout(linger); show(ev); });
+      hit.addEventListener('pointerleave', leave);
+      hit.addEventListener('pointercancel', leave);
+    });
+  }
+
+  function renderMemo(d) {
+    var body = $('memo-body');
+    body.textContent = '';
+    sparks = [];
+    var day = dayOf(d.date, false, true);
+    $('memo-sub').textContent = day + 'の米国市場';
+    var updated = new Date(d.updated);
+    var stale = isNaN(updated) || Date.now() - updated.getTime() > MEMO_STALE_MS;
+    $('memo-asof').textContent = isNaN(updated) ? '' : fmtStamp.format(updated) + ' 更新';
+
+    if (stale) body.appendChild(el('p', { 'class': 'memo-msg' }, 'このメモは ' + day + ' 分のままで、更新が止まっています。'));
+    body.appendChild(el('h3', { 'class': 'memo-headline' }, d.headline));
+    if (d.summary) body.appendChild(el('p', null, d.summary));
+
+    if (Array.isArray(d.today) && d.today.length) {
+      var figs = el('div', { 'class': 'memo-figs' });
+      d.today.forEach(function (x) {
+        if (!x || !x.k) return;
+        var item = el('span');
+        item.appendChild(el('span', { 'class': 'k' }, x.k));
+        item.appendChild(el('b', null, String(x.v)));
+        if (x.d) item.appendChild(figure(x.s, String(x.d)));
+        figs.appendChild(item);
+      });
+      body.appendChild(figs);
+    }
+    if (Array.isArray(d.state) && d.state.length) {
+      var chips = el('ul', { 'class': 'memo-state' });
+      d.state.forEach(function (t) { chips.appendChild(el('li', null, String(t))); });
+      body.appendChild(chips);
+    }
+
+    var drivers = (Array.isArray(d.drivers) ? d.drivers : []).filter(function (x) { return x && x.t; });
+    if (drivers.length) {
+      body.appendChild(el('h3', null, '動いた理由'));
+      var list = el('ul', { 'class': 'memo-drivers' });
+      drivers.forEach(function (x) {
+        var li = el('li', null, String(x.t));
+        if (/^https:\/\//.test(String(x.u))) li.appendChild(el('a', { href: x.u, target: '_blank', rel: 'noopener nofollow' }, x.s || '出典'));
+        else if (x.s) li.appendChild(el('span', { 'class': 'memo-hint' }, '（' + x.s + '）'));
+        list.appendChild(li);
+      });
+      body.appendChild(list);
+    }
+
+    var st = d.stats || {};
+    var analogs = (Array.isArray(d.analogs) ? d.analogs : []).filter(function (a) { return a && a.d; });
+    if (analogs.length) {
+      body.appendChild(el('h3', null, '過去の似た局面（今日に近い順）'));
+      body.appendChild(el('p', { 'class': 'memo-hint' }, 'S&P500 と VIX の状態が今日に近かった日を' + (st.since ? st.since + '年以降から' : '') + '機械的に選んだものです。グラフはその日から約3か月（60営業日）の S&P500 で、点線が当日の水準です。'));
+      analogs.forEach(function (a) {
+        var row = el('div', { 'class': 'analog' });
+        var head = el('div');
+        head.appendChild(el('div', { 'class': 'analog-when' }, dayOf(a.d, true, false)));
+        if (a.label) head.appendChild(el('div', { 'class': 'analog-label' }, a.label));
+        if (a.then) head.appendChild(el('div', { 'class': 'analog-then' }, '当時: ' + a.then));
+        row.appendChild(head);
+        var path = cleanPath(a.path);
+        var spark = el('div', { 'class': 'spark' });
+        row.appendChild(spark);
+        if (path.length > 1) sparks.push({ host: spark, path: path });
+        var fwd = el('dl', { 'class': 'fwd' });
+        [['1週間後', a.w1], ['1か月後', a.m1], ['3か月後', a.m3]].forEach(function (c) {
+          var cell = el('div');
+          cell.appendChild(el('dt', null, c[0]));
+          var dd = el('dd');
+          dd.appendChild(figure(c[1], pctText(c[1])));
+          cell.appendChild(dd);
+          fwd.appendChild(cell);
+        });
+        row.appendChild(fwd);
+        if (a.note) row.appendChild(el('p', { 'class': 'analog-note' }, a.note));
+        body.appendChild(row);
+      });
+    }
+
+    if (st.m1 && st.m3) {
+      body.appendChild(el('h3', null, '似た局面 ' + st.n + ' 回のその後（S&P500）'));
+      var table = el('table', { 'class': 'memo-table' });
+      var cols = [['1週間後', st.w1, st.base && st.base.w1], ['1か月後', st.m1, st.base && st.base.m1], ['3か月後', st.m3, st.base && st.base.m3]];
+      var thead = el('thead'), hr = el('tr');
+      hr.appendChild(el('th', { scope: 'col' }, ''));
+      cols.forEach(function (c) { hr.appendChild(el('th', { scope: 'col' }, c[0])); });
+      thead.appendChild(hr);
+      table.appendChild(thead);
+      var tbody = el('tbody');
+      function line(name, pick, cls) {
+        var tr = el('tr', cls ? { 'class': cls } : null);
+        tr.appendChild(el('th', { scope: 'row' }, name));
+        cols.forEach(function (c) { tr.appendChild(el('td', null, pick(c[1], c[2]))); });
+        tbody.appendChild(tr);
+      }
+      line('上がっていた回数', function (x) { return x ? x.up + ' / ' + x.n : '—'; });
+      line('まんなかの値（中央値）', function (x) { return x ? pctText(x.med) : '—'; });
+      line('最も悪かった回', function (x) { return x ? pctText(x.min) : '—'; });
+      line('最も良かった回', function (x) { return x ? pctText(x.max) : '—'; });
+      line('ふだんの日の中央値', function (x, b) { return b ? pctText(b.med) : '—'; }, 'base');
+      line('ふだんの日に上がる割合', function (x, b) { return b ? b.upPct + '%' : '—'; }, 'base');
+      table.appendChild(tbody);
+      body.appendChild(table);
+      var extra = [];
+      if (st.low) extra.push('その後3か月の途中で最も下がった幅は、中央値 ' + pctText(st.low.med) + '、最悪 ' + pctText(st.low.min) + '。');
+      if (st.lev1 && st.lev3) extra.push('3倍型（SPXL など）に置きかえた概算では、1か月後が中央値 ' + pctText(st.lev1.med) + '・最悪 ' + pctText(st.lev1.min) + '、3か月後が中央値 ' + pctText(st.lev3.med) + '・最悪 ' + pctText(st.lev3.min) + '。');
+      if (extra.length) body.appendChild(el('p', { 'class': 'memo-hint' }, extra.join('')));
+    }
+
+    if (d.takeaway) {
+      body.appendChild(el('h3', null, 'この数字の見方'));
+      body.appendChild(el('p', null, d.takeaway));
+    }
+    body.appendChild(el('p', { 'class': 'memo-foot' }, '過去の値動きを集計したもので、将来を示すものではありません。文章は AI（Claude）が作成しており、誤りを含むことがあります。投資の判断はご自身でお願いします。'));
+
+    $('memo-tease-v').textContent = d.headline;
+    $('memo-tease-s').textContent = day + '・タップで読む';
+    $('memo-tease').hidden = false;
+    drawSparks();
+  }
+  function renderMemoMissing() {
+    $('memo-sub').textContent = '';
+    $('memo-asof').textContent = '';
+    $('memo-body').textContent = '';
+    $('memo-body').appendChild(el('p', { 'class': 'memo-msg' }, '相場メモを読み込めませんでした。しばらくしてからもう一度開いてください。'));
+    $('memo-tease').hidden = true;
+  }
+  function loadMemo() {
+    memoLastTry = Date.now();
+    fetch(MEMO_URL, { cache: 'no-store' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (d) {
+        if (!d || d.v !== 1 || !d.date || !d.headline) throw new Error('no memo yet');
+        var key = d.date + '|' + d.updated;
+        if (key === memoShown) return;
+        renderMemo(d);
+        memoShown = key;
+      })
+      .catch(function () {
+        if (!memoShown) renderMemoMissing();
+      });
   }
 
   // ---- start ----
@@ -949,15 +1178,19 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
     pickChart('vix');
     $('chart-tabs').scrollIntoView({ block: 'start' });
   });
+  $('memo-tease').addEventListener('click', function () {
+    $('card-memo').scrollIntoView({ block: 'start' });
+  });
   mountAll();
   tick();
   window.setInterval(tick, 1000);
   loadCnn();
-  loadNews();
+  loadMemo();
   window.setInterval(function () { if (!document.hidden) loadCnn(); }, CNN_EVERY_MS);
-  window.setInterval(function () { if (!document.hidden) loadNews(); }, NEWS_EVERY_MS);
+  window.setInterval(function () { if (!document.hidden) loadMemo(); }, MEMO_EVERY_MS);
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden && Date.now() - cnnLastOk > CNN_EVERY_MS) loadCnn();
+    if (!document.hidden && Date.now() - memoLastTry > MEMO_EVERY_MS) loadMemo();
   });
 
   $('theme-btn').addEventListener('click', function () {
@@ -981,8 +1214,13 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
       window.cancelAnimationFrame(redraw);
       redraw = window.requestAnimationFrame(drawTrend);
     }).observe($('fng-chart'));
+    var respark = 0;
+    new ResizeObserver(function () {
+      window.cancelAnimationFrame(respark);
+      respark = window.requestAnimationFrame(drawSparks);
+    }).observe($('memo-body'));
   } else {
-    window.addEventListener('resize', drawTrend);
+    window.addEventListener('resize', function () { drawTrend(); drawSparks(); });
   }
 })();
 </script>
