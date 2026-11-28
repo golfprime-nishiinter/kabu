@@ -562,7 +562,7 @@ function brief(facts, out) {
   L.push('   notes: 上位' + SHOWN + '件の日付ごとに、当時何が起きていた局面で、その後どうなったかを1〜2文（90字以内）。当時の出来事に確信がない日付は空文字にする。');
   L.push('   takeaway: 集計から言えること・言えないことを2〜3文（200字以内）。似た局面でも結果はばらつくこと、SPXL・SOXL・TQQQ のような3倍型は下落時の傷が大きくなることに触れる。売買の推奨や断定的な予想は書かない。');
   L.push('3. 数字は上の一覧にあるもの、または検索で確認して出典を付けたものだけを使う。記憶に頼った数字は書かない。');
-  L.push('4. node memo.mjs build --dir ' + out + ' を実行し、エラーが出たら memo.json を直してやり直す。');
+  L.push('4. node ' + path.resolve(process.argv[1]) + ' build --dir ' + out + ' を実行し、エラーが出たら memo.json を直してやり直す。');
   return L.join('\n');
 }
 
