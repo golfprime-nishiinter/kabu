@@ -33,8 +33,10 @@ const SHOWN = 5;             // past episodes listed on the board
 const HORIZONS = { w1: 5, m1: 20, m3: 60 };
 const PATH_DAYS = 60;
 
-// How much each trait counts when two days are compared.
-const WEIGHTS = { dd: 1.0, ma200: 0.8, r5: 0.8, r20: 1.0, r60: 0.7, lv: 1.2, vr: 0.8, rv: 0.6, r1: 0.3 };
+// How much each trait counts when two days are compared. "fg" is the Fear & Greed reading:
+// the real one for today, an estimate built from FG_INPUTS for past days (see estimateSentiment).
+const WEIGHTS = { fg: 1.5, dd: 1.0, ma200: 0.6, r5: 0.8, r20: 1.0, r60: 0.7, lv: 1.2, vr: 0.8, rv: 0.6, r1: 0.3 };
+const FG_INPUTS = ['mom125', 'vr', 'r20'];   // the mix that held up best on months it was not fitted on
 
 // Well-known stretches, used only to label a past day.
 const EPISODES = [
@@ -254,6 +256,8 @@ function describeDays(cal) {
     for (let k = i - LOOKBACK + 1; k <= i; k++) if (cal[k].c >= hi) { hi = cal[k].c; hiAt = k; }
     let s200 = 0;
     for (let k = i - 199; k <= i; k++) s200 += cal[k].c;
+    let s125 = 0;
+    for (let k = i - 124; k <= i; k++) s125 += cal[k].c;
     let s50 = 0, n50 = 0;
     for (let k = i - 49; k <= i; k++) if (cal[k].v !== null) { s50 += cal[k].v; n50++; }
     if (n50 < 40) continue;
@@ -263,6 +267,7 @@ function describeDays(cal) {
       dd: c / hi - 1,
       hiAt,
       ma200: c / (s200 / 200) - 1,
+      mom125: c / (s125 / 125) - 1,
       r1: c / cal[i - 1].c - 1,
       r5: c / cal[i - 5].c - 1,
       r20: c / cal[i - 20].c - 1,
@@ -276,12 +281,12 @@ function describeDays(cal) {
 }
 
 // Each trait becomes its position within the whole history, so one extreme trait cannot swamp the rest.
-function standardize(f) {
+function standardize(f, keys) {
   const idx = [];
   f.forEach((x, i) => { if (x) idx.push(i); });
   const z = new Array(f.length).fill(null);
   idx.forEach((i) => { z[i] = {}; });
-  for (const key of Object.keys(WEIGHTS)) {
+  for (const key of keys) {
     const order = idx.slice().sort((p, q) => f[p][key] - f[q][key]);
     let s = 0;
     while (s < order.length) {
@@ -293,6 +298,63 @@ function standardize(f) {
     }
   }
   return z;
+}
+
+// Least squares with an intercept (normal equations, elimination with pivoting).
+function fitLinear(X, y) {
+  const k = X[0].length + 1;
+  const A = Array.from({ length: k }, () => new Array(k + 1).fill(0));
+  X.forEach((x, r) => {
+    const row = [1, ...x];
+    for (let i = 0; i < k; i++) {
+      for (let j = 0; j < k; j++) A[i][j] += row[i] * row[j];
+      A[i][k] += row[i] * y[r];
+    }
+  });
+  for (let c = 0; c < k; c++) {
+    let p = c;
+    for (let r = c + 1; r < k; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    if (Math.abs(A[p][c]) < 1e-12) return null;
+    [A[c], A[p]] = [A[p], A[c]];
+    for (let r = 0; r < k; r++) {
+      if (r === c) continue;
+      const m = A[r][c] / A[c][c];
+      for (let j = c; j <= k; j++) A[r][j] -= m * A[c][j];
+    }
+  }
+  return A.map((row, i) => row[k] / row[i]);
+}
+
+// The board carries about a year of real Fear & Greed readings. Over that year the index is fitted to
+// traits that exist for every day (price against its 125-day average, VIX against its 50-day average,
+// the 20-day move: the same kind of ingredients the index itself is built from); the fit then gives an
+// estimate for each past day, so "how fearful was the market" can be compared across the whole history.
+// It is rough (typically 6 points off), so the board shows it rounded and labelled as an estimate.
+// Today always uses the real reading. Returns null (and the search goes without it) when the fit is poor.
+function estimateSentiment(cal, f, fgHist, fgToday) {
+  const rows = [];
+  cal.forEach((x, i) => { if (f[i] && fgHist.has(x.d)) rows.push(i); });
+  if (rows.length < 150 || !isFinite(fgToday)) return null;
+  const xOf = (i) => FG_INPUTS.map((k) => f[i][k]);
+  const yOf = (list) => list.map((i) => fgHist.get(cal[i].d));
+  const predict = (beta, i) => Math.max(0, Math.min(100, beta[0] + xOf(i).reduce((sum, v, k) => sum + beta[k + 1] * v, 0)));
+  const score = (beta, list) => {
+    const y = yOf(list);
+    const mean = y.reduce((sum, v) => sum + v, 0) / y.length;
+    let sse = 0, sst = 0, sae = 0;
+    list.forEach((i, n) => { const e = y[n] - predict(beta, i); sse += e * e; sae += Math.abs(e); sst += (y[n] - mean) ** 2; });
+    return { r2: round(1 - sse / sst, 2), mae: round(sae / list.length, 1) };
+  };
+  const beta = fitLinear(rows.map(xOf), yOf(rows));
+  if (!beta) return null;
+  // A harder check: fit on the older 60% of the year, score on the newer 40%.
+  const cut = Math.floor(rows.length * 0.6);
+  const early = fitLinear(rows.slice(0, cut).map(xOf), yOf(rows.slice(0, cut)));
+  const fit = score(beta, rows);
+  if (fit.r2 < 0.6) return null;
+  f.forEach((x, i) => { if (x) x.fg = predict(beta, i); });
+  f[cal.length - 1].fg = fgToday;
+  return { days: rows.length, r2: fit.r2, mae: fit.mae, heldOut: early ? score(early, rows.slice(cut)) : null };
 }
 
 function forward(cal, i) {
@@ -325,12 +387,13 @@ function summarize(values) {
   return { n: a.length, up: a.filter((v) => v > 0).length, med: pct(median(a)), min: pct(Math.min(...a)), max: pct(Math.max(...a)) };
 }
 
-function analyze(cal) {
+function analyze(cal, fgHist, fgToday) {
   const f = describeDays(cal);
-  const z = standardize(f);
   const T = cal.length - 1;
   if (!f[T]) throw new Error('not enough history to describe the latest day');
-  const keys = Object.keys(WEIGHTS);
+  const sentiment = estimateSentiment(cal, f, fgHist, fgToday);
+  const keys = Object.keys(WEIGHTS).filter((k) => k !== 'fg' || sentiment);
+  const z = standardize(f, keys);
   const scored = [];
   for (let i = 0; i <= T - RECENT_GAP; i++) {
     if (!z[i]) continue;
@@ -351,7 +414,7 @@ function analyze(cal) {
       d: cal[p.i].d,
       label: episodeOf(cal[p.i].d),
       dist: round(p.dist, 2),
-      then: { close: cal[p.i].c, vix: cal[p.i].v, dd: pct(f[p.i].dd), ma200: pct(f[p.i].ma200), r5: pct(f[p.i].r5), r20: pct(f[p.i].r20), r60: pct(f[p.i].r60) },
+      then: { close: cal[p.i].c, vix: cal[p.i].v, fg: sentiment ? Math.round(f[p.i].fg) : null, dd: pct(f[p.i].dd), ma200: pct(f[p.i].ma200), r5: pct(f[p.i].r5), r20: pct(f[p.i].r20), r60: pct(f[p.i].r60) },
       w1: fw.w1 === null ? null : pct(fw.w1),
       m1: fw.m1 === null ? null : pct(fw.m1),
       m3: fw.m3 === null ? null : pct(fw.m3),
@@ -383,7 +446,7 @@ function analyze(cal) {
     lev3: summarize(analogs.map((a) => (a.lev3 === null ? null : a.lev3 / 100))),
     base
   };
-  return { f, T, analogs, stats };
+  return { f, T, analogs, stats, sentiment };
 }
 
 // ---------- collect ----------
@@ -454,17 +517,51 @@ async function collect() {
   const T = cal.length - 1;
   if (cal[T].d !== latest) throw new Error('calendar ends on ' + cal[T].d + ', expected ' + latest);
   if (cal.length < LOOKBACK + RECENT_GAP + 250) throw new Error('only ' + cal.length + ' trading days of unbroken history');
-  const { f, analogs, stats } = analyze(cal);
-  const t = f[T];
-
-  // Today's figures.
   const fg = cnn.fear_and_greed || {};
   const fgHist = dailyPoints(cnn.fear_and_greed_historical);
+  const { f, analogs, stats, sentiment } = analyze(cal, fgHist, Number(fg.score));
+  const t = f[T];
+
+  // Earlier stretches, within the board's year of real readings, when Fear & Greed was as low
+  // (or as high) as it is today, and what the S&P 500 did from the day it first got there.
+  const fngPast = [];
+  const side = !isFinite(fg.score) ? 0 : fg.score < 45 ? -1 : fg.score > 55 ? 1 : 0;
+  if (side) {
+    const limit = fg.score;
+    const at = (i) => fgHist.get(cal[i].d);
+    const hit = (i) => fgHist.has(cal[i].d) && (side < 0 ? at(i) <= limit : at(i) >= limit);
+    const firstKnown = cal.findIndex((x) => fgHist.has(x.d));
+    const ret = (i, h) => (i + h <= T ? pct(cal[i + h].c / cal[i].c - 1) : null);
+    let i = firstKnown;
+    while (i >= 0 && i <= T) {
+      if (!hit(i)) { i++; continue; }
+      let end = i, ext = i;
+      for (let k = i + 1, miss = 0; k <= T && miss <= 10; k++) {
+        if (!hit(k)) { miss++; continue; }
+        miss = 0;
+        end = k;
+        if (side < 0 ? at(k) < at(ext) : at(k) > at(ext)) ext = k;
+      }
+      // A stretch that reaches into the last 20 trading days is the current one, not a past one.
+      if (end <= T - 20) {
+        fngPast.push({ from: cal[i].d, to: cal[end].d, startedEarlier: i === firstKnown, first: Math.round(at(i)), extreme: Math.round(at(ext)), extremeDate: cal[ext].d, w1: ret(i, HORIZONS.w1), m1: ret(i, HORIZONS.m1), m3: ret(i, HORIZONS.m3) });
+      }
+      i = end + 11;
+    }
+  }
+  const tally = (key) => {
+    const v = fngPast.map((e) => e[key]).filter((x) => x !== null);
+    return { n: v.length, up: v.filter((x) => x > 0).length };
+  };
+  const fngPastTally = { w1: tally('w1'), m1: tally('m1'), m3: tally('m3') };
+
+  // Today's figures.
   const fgVals = Array.from(fgHist.values());
   const vixAll = Array.from(fredVix.values());
   const vixRank = Math.round(vixAll.filter((v) => v < cal[T].v).length / vixAll.length * 100);
   const yearStart = cal.findLast((x) => x.d < latest.slice(0, 4) + '-01-01');
   const comps = COMPONENTS.map(([key, name]) => ({ name, rating: RATING_JA[String((cnn[key] || {}).rating || '').toLowerCase()] || '' })).filter((c) => c.rating);
+  const count = (words) => comps.filter((c) => words.includes(c.rating)).length;
   const recent = [];
   for (let i = T - 9; i <= T; i++) recent.push({ d: cal[i].d, close: cal[i].c, chg: pct(cal[i].c / cal[i - 1].c - 1, 2), vix: cal[i].v });
   let bigMoveSince = null;
@@ -504,7 +601,14 @@ async function collect() {
       monthAgo: isFinite(fg.previous_1_month) ? Math.round(fg.previous_1_month) : null,
       yearAgo: isFinite(fg.previous_1_year) ? Math.round(fg.previous_1_year) : null,
       lowerThanPctOfPastYear: fgVals.length && isFinite(fg.score) ? Math.round(fgVals.filter((v) => v > fg.score).length / fgVals.length * 100) : null,
-      components: comps
+      components: comps,
+      fearCount: count(['極度の恐怖', '恐怖']),
+      neutralCount: count(['中立']),
+      greedCount: count(['強欲', '極度の強欲']),
+      side,
+      past: fngPast,
+      pastTally: fngPastTally,
+      estimate: sentiment
     },
     recent
   };
@@ -520,7 +624,8 @@ function template(facts) {
     date: facts.today.date,
     headline: '',
     summary: '',
-    drivers: [{ t: '', s: '', u: '' }],
+    news: [{ h: '', t: '', s: '', u: '' }],
+    fngNote: '',
     notes: Object.fromEntries(facts.analogs.slice(0, SHOWN).map((a) => [a.d, ''])),
     takeaway: ''
   };
@@ -529,7 +634,7 @@ function template(facts) {
 function analogLine(a) {
   const f = (v) => (v === null ? '—' : signed(v));
   return '  ' + a.d + (a.label ? '【' + a.label + '】' : '') +
-    ' 当時: 高値から' + signed(a.then.dd) + '・200日線' + signed(a.then.ma200) + '・20日' + signed(a.then.r20) + '・VIX ' + a.then.vix.toFixed(1) +
+    ' 当時: 高値から' + signed(a.then.dd) + '・200日線' + signed(a.then.ma200) + '・20日' + signed(a.then.r20) + '・VIX ' + a.then.vix.toFixed(1) + (a.then.fg === null ? '' : '・F&G相当（推定）' + a.then.fg) +
     ' → 1週間後 ' + f(a.w1) + ' / 1か月後 ' + f(a.m1) + ' / 3か月後 ' + f(a.m3) +
     '（60営業日以内の最安 ' + signed(a.low) + '、' + a.lowAt + '営業日目）';
 }
@@ -544,11 +649,24 @@ function brief(facts, out) {
   L.push('  ' + (t.spx.weekEnded ? '今週（週間）' : '今週ここまで') + ': ' + signed(t.spx.week) + (t.spx.weekEnded && t.spx.weekAsBigLastSeen ? '（同じ向きでこれ以上動いた週は ' + t.spx.weekAsBigLastSeen + ' の週が最後）' : '') + (t.spx.mtd === null ? '' : '／今月ここまで: ' + signed(t.spx.mtd)));
   L.push('VIX: ' + t.vix.value.toFixed(2) + '（前日 ' + t.vix.prev.toFixed(2) + '、' + signed(t.vix.chg, 2, '') + '）／1990年以降の営業日の ' + t.vix.higherThanPctOfDaysSince1990 + '% より高い水準／50日平均比 ' + signed(t.vix.vs50dayAvg));
   L.push('Fear & Greed: ' + t.fng.score + '（' + t.fng.rating + '）／前日 ' + t.fng.prevClose + '・1週間前 ' + t.fng.weekAgo + '・1か月前 ' + t.fng.monthAgo + '・1年前 ' + t.fng.yearAgo + (t.fng.lowerThanPctOfPastYear === null ? '' : '／過去1年の ' + t.fng.lowerThanPctOfPastYear + '% の日より低い'));
-  L.push('  内訳: ' + t.fng.components.map((c) => c.name + '=' + c.rating).join('、'));
+  L.push('  内訳（7項目）: 恐怖側 ' + t.fng.fearCount + '・中立 ' + t.fng.neutralCount + '・強欲側 ' + t.fng.greedCount + '｜' + t.fng.components.map((c) => c.name + '=' + c.rating).join('、'));
+  if (t.fng.side) {
+    const word = t.fng.side < 0 ? '以下まで下がった' : '以上まで上がった';
+    if (t.fng.past.length) {
+      L.push('  この1年の実績: Fear & Greed が今日の水準' + word + '過去の局面と、その水準に最初に達した日からのS&P500');
+      const g = (v) => (v === null ? '—' : signed(v));
+      const y = t.fng.pastTally;
+      L.push('    まとめ: ' + t.fng.past.length + ' 回。上がっていた回数は 1週間後 ' + y.w1.up + '/' + y.w1.n + '・1か月後 ' + y.m1.up + '/' + y.m1.n + '・3か月後 ' + y.m3.up + '/' + y.m3.n + '（まだ日数がたっていない回は数えていない）');
+      for (const e of t.fng.past) L.push('    ' + e.from + '〜' + e.to + (e.startedEarlier ? '（データの始まりより前から続いていた）' : '') + ' 初日の値 ' + e.first + '・' + (t.fng.side < 0 ? '最低 ' : '最高 ') + e.extreme + '（' + e.extremeDate + '）→ 1週間後 ' + g(e.w1) + ' / 1か月後 ' + g(e.m1) + ' / 3か月後 ' + g(e.m3));
+    } else {
+      L.push('  この1年の実績: Fear & Greed が今日の水準' + word + '局面は、今回のほかにはありません。');
+    }
+  }
+  if (t.fng.estimate) L.push('  過去の日の Fear & Greed は実測が1年分しかないため、同じ材料（株価と125日平均の差、VIXと50日平均の差など）からの推定値を使う。この1年の実測との当てはまり: 決定係数 ' + t.fng.estimate.r2 + '・平均誤差 ' + t.fng.estimate.mae + ' ポイント' + (t.fng.estimate.heldOut ? '（前半で作って後半で試すと 決定係数 ' + t.fng.estimate.heldOut.r2 + '・平均誤差 ' + t.fng.estimate.heldOut.mae + '）' : ''));
   L.push('直近10営業日（S&P500 終値・前日比・VIX）:');
   for (const r of t.recent) L.push('  ' + r.d + '  ' + comma(r.close) + '  ' + signed(r.chg, 2) + '  VIX ' + (r.vix === null ? '—' : r.vix.toFixed(2)));
   L.push('');
-  L.push('=== 過去の似た局面（' + s.since + '年以降のS&P500とVIXから機械的に抽出。近い順、上位' + SHOWN + '件がボードに載る）===');
+  L.push('=== 過去の似た局面（' + s.since + '年以降。S&P500・VIX' + (t.fng.estimate ? '・Fear & Greed（過去分は推定）' : '') + 'の状態が今日に近い日を機械的に抽出。近い順、上位' + SHOWN + '件がボードに載る）===');
   facts.analogs.forEach((a, i) => { L.push((i === SHOWN ? '  ---- 以下は集計にだけ使う ----\n' : '') + analogLine(a)); });
   L.push('');
   L.push('=== 集計（似た局面 ' + s.n + ' 回）===');
@@ -560,11 +678,13 @@ function brief(facts, out) {
   if (s.lev1 && s.lev3) L.push('3倍レバレッジ型の概算（毎日3倍・経費は無視）: 1か月後 中央値 ' + signed(s.lev1.med) + '・最悪 ' + signed(s.lev1.min) + '／3か月後 中央値 ' + signed(s.lev3.med) + '・最悪 ' + signed(s.lev3.min));
   L.push('');
   L.push('=== 書き方 ===');
-  L.push('1. 今日の米国株が動いた理由をウェブ検索で2〜3回調べる（例:「米国株 ' + t.date + '」「Wall Street stocks ' + t.date + '」）。検索語に個人名や非公開の情報は入れない。');
+  L.push('1. ウェブ検索を4〜5回まで使い、今日の米国株が動いた理由と、その日の気になるニュースを調べる（例:「米国株 ' + t.date + '」「Wall Street stocks ' + t.date + '」「半導体 AI 株 ニュース」「FRB 金利 見通し」「来週 米国 経済指標 予定」）。検索語に個人名や非公開の情報は入れない。');
   L.push('2. ' + path.join(out, 'memo.template.json') + ' と同じ形で ' + path.join(out, 'memo.json') + ' を書く。すべて日本語・です/ます調・投資の初心者にも分かる言葉で。');
   L.push('   headline: 今日の相場を一言で（30字以内）。');
-  L.push('   summary: 今日何が起きたか、いまの市場の状態（2〜3文、160字以内）。');
-  L.push('   drivers: 動いた理由を2〜4件。t=内容（60字以内）、s=情報源の名前、u=その記事のURL（https、検索で実際に確認したものだけ）。確認できなければ空の配列にする。');
+  L.push('   summary: 今日何が起きたか、いまの市場の状態（2〜3文、160字以内）。Fear & Greed の水準にも触れる。');
+  L.push('   news: その日の気になるニュースを3〜5件。h=見出し（40字以内）、t=要約（2〜3文、140字以内。何が起きて、なぜ株価に関係するのか）、s=情報源の名前、u=その記事のURL（https、検索結果に実際に出てきたものだけ）。');
+  L.push('         選ぶ目安: 相場全体を動かした材料／金利・FRB・物価／AI・半導体・大型ハイテク（SOXL・TQQQ に関係）／ドル円／これから数日の重要な予定（経済指標・FRB会合・決算）。同じ話題を重ねない。検索で確認できた内容だけを書く。');
+  L.push('   fngNote: Fear & Greed について1〜2文（120字以内）。今の水準と前日・1週間前からの変化、内訳、上の「この1年の実績」があればその「まとめ」の回数をそのまま使って触れる（回数が少ないことも書く）。');
   L.push('   notes: 上位' + SHOWN + '件の日付ごとに、当時何が起きていた局面で、その後どうなったかを1〜2文（90字以内）。当時の出来事に確信がない日付は空文字にする。');
   L.push('   takeaway: 集計から言えること・言えないことを2〜3文（200字以内）。似た局面でも結果はばらつくこと、SPXL・SOXL・TQQQ のような3倍型は下落時の傷が大きくなることに触れる。売買の推奨や断定的な予想は書かない。');
   L.push('3. 数字は上の一覧にあるもの、または検索で確認して出典を付けたものだけを使う。記憶に頼った数字は書かない。');
@@ -589,16 +709,19 @@ function build() {
   const headline = text(memo.headline, 'headline', 30, true);
   const summary = text(memo.summary, 'summary', 160, true);
   const takeaway = text(memo.takeaway, 'takeaway', 200, true);
-  const drivers = [];
-  (Array.isArray(memo.drivers) ? memo.drivers : []).forEach((d, i) => {
-    if (!d || (!d.t && !d.u)) return;
-    const t = text(d.t, 'drivers[' + i + '].t', 60, true);
-    const s = text(d.s, 'drivers[' + i + '].s', 30, false);
+  const news = [];
+  (Array.isArray(memo.news) ? memo.news : []).forEach((d, i) => {
+    if (!d || (!d.h && !d.t)) return;
+    const h = text(d.h, 'news[' + i + '].h', 40, true);
+    const t = text(d.t, 'news[' + i + '].t', 140, true);
+    const s = text(d.s, 'news[' + i + '].s', 30, true);
     const u = typeof d.u === 'string' ? d.u.trim() : '';
-    if (u && !/^https:\/\/[^\s"'<>]+$/.test(u)) errors.push('drivers[' + i + '].u は https で始まるURLにしてください');
-    drivers.push(u ? { t, s, u } : { t, s });
+    if (!/^https:\/\/[^\s"'<>]+$/.test(u)) errors.push('news[' + i + '].u は検索結果に出てきた記事の https のURLにしてください');
+    news.push({ h, t, s, u });
   });
-  if (drivers.length > 4) errors.push('drivers は4件までです');
+  if (news.length < 3) errors.push('news は3件以上必要です（いまは ' + news.length + ' 件）。検索結果の見出しと要約から書いてください');
+  if (news.length > 5) errors.push('news は5件までです');
+  const fngNote = text(memo.fngNote, 'fngNote', 120, true);
   const shown = facts.analogs.slice(0, SHOWN);
   const notes = memo.notes && typeof memo.notes === 'object' ? memo.notes : {};
   for (const k of Object.keys(notes)) if (!shown.some((a) => a.d === k)) errors.push('notes の日付 ' + k + ' は上位' + SHOWN + '件にありません');
@@ -626,11 +749,29 @@ function build() {
       '直近20日 ' + signed(t.spx.r20),
       'VIXは1990年以降の' + t.vix.higherThanPctOfDaysSince1990 + '%の日より高い'
     ],
-    drivers,
+    news,
+    fng: {
+      score: t.fng.score,
+      rating: t.fng.rating,
+      prev: t.fng.prevClose,
+      week: t.fng.weekAgo,
+      month: t.fng.monthAgo,
+      fear: t.fng.fearCount,
+      neutral: t.fng.neutralCount,
+      greed: t.fng.greedCount,
+      items: t.fng.components,
+      side: t.fng.side,
+      past: t.fng.past.slice(-4),
+      pastCount: t.fng.past.length,
+      pastTally: t.fng.pastTally,
+      estimated: !!t.fng.estimate,
+      note: fngNote
+    },
     analogs: shown.map((a) => ({
       d: a.d,
       label: a.label,
-      then: '高値から' + signed(a.then.dd) + '・VIX ' + a.then.vix.toFixed(1),
+      // The estimate is rough, so it is shown to the nearest five.
+      then: '高値から' + signed(a.then.dd) + '・VIX ' + a.then.vix.toFixed(1) + (a.then.fg === null || a.then.fg === undefined ? '' : '・F&G 約' + Math.round(a.then.fg / 5) * 5 + '（推定）'),
       w1: a.w1, m1: a.m1, m3: a.m3, low: a.low,
       path: a.path,
       note: text(notes[a.d], 'notes.' + a.d, 90, false)

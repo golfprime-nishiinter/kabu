@@ -246,6 +246,14 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .memo-drivers li { margin-bottom: 4px; }
 .memo-drivers a { color: var(--ink-2); font-size: 12px; white-space: nowrap; margin-left: 4px; }
 .memo-hint { color: var(--ink-2); font-size: 12px; }
+.memo-news { margin: 0; padding: 0; list-style: none; }
+.memo-news li { border-top: 1px solid var(--hairline); padding: 9px 0; }
+.memo-news li:first-child { border-top: 0; padding-top: 2px; }
+.memo-news .news-h { font-weight: 650; line-height: 1.45; }
+.memo-body .memo-news p { margin: 3px 0 2px; font-size: 13.5px; }
+.memo-news a { color: var(--ink-2); font-size: 12px; }
+.fng-then { border-top: 1px solid var(--hairline); padding: 8px 0; }
+.fng-then .fwd { margin-top: 4px; }
 .analog { border-top: 1px solid var(--hairline); padding: 10px 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(96px, 34%); gap: 2px 12px; }
 .analog-when { font-weight: 650; font-variant-numeric: tabular-nums; }
 .analog-label { color: var(--ink-2); font-size: 12px; }
@@ -1044,6 +1052,64 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
       body.appendChild(chips);
     }
 
+    var news = (Array.isArray(d.news) ? d.news : []).filter(function (x) { return x && x.h; });
+    if (news.length) {
+      body.appendChild(el('h3', null, '気になるニュース'));
+      var items = el('ul', { 'class': 'memo-news' });
+      news.forEach(function (x) {
+        var li = el('li');
+        li.appendChild(el('div', { 'class': 'news-h' }, String(x.h)));
+        if (x.t) li.appendChild(el('p', null, String(x.t)));
+        if (/^https:\/\//.test(String(x.u))) li.appendChild(el('a', { href: x.u, target: '_blank', rel: 'noopener nofollow' }, x.s || '出典'));
+        else if (x.s) li.appendChild(el('span', { 'class': 'memo-hint' }, String(x.s)));
+        items.appendChild(li);
+      });
+      body.appendChild(items);
+    }
+
+    var fg = d.fng;
+    if (fg && num(fg.score) !== null) {
+      body.appendChild(el('h3', null, 'Fear & Greed から見ると'));
+      var fgFigs = el('div', { 'class': 'memo-figs' });
+      var now = el('span');
+      now.appendChild(el('span', { 'class': 'k' }, '今日'));
+      now.appendChild(el('b', null, String(fg.score)));
+      now.appendChild(document.createTextNode(fg.rating || ''));
+      fgFigs.appendChild(now);
+      [['前日', fg.prev], ['1週間前', fg.week], ['1か月前', fg.month]].forEach(function (c) {
+        if (num(c[1]) === null) return;
+        var item = el('span');
+        item.appendChild(el('span', { 'class': 'k' }, c[0]));
+        item.appendChild(el('b', null, String(c[1])));
+        fgFigs.appendChild(item);
+      });
+      body.appendChild(fgFigs);
+      if (num(fg.fear) !== null) body.appendChild(el('p', { 'class': 'memo-hint' }, '内訳の7項目: 恐怖側 ' + fg.fear + '・中立 ' + fg.neutral + '・強欲側 ' + fg.greed));
+      if (fg.note) body.appendChild(el('p', null, fg.note));
+      var past = (Array.isArray(fg.past) ? fg.past : []).filter(function (e) { return e && e.from; });
+      if (fg.side && past.length) {
+        body.appendChild(el('p', { 'class': 'memo-hint' }, 'この1年で Fear & Greed が今日の水準' + (fg.side < 0 ? '以下まで下がった' : '以上まで上がった') + '局面（実際の値）。数字は、その水準に最初に達した日からの S&P500 です。'));
+        past.forEach(function (e) {
+          var row = el('div', { 'class': 'fng-then' });
+          row.appendChild(el('div', { 'class': 'analog-when' }, dayOf(e.from, true, false) + '〜' + dayOf(e.to, false, false)));
+          row.appendChild(el('div', { 'class': 'analog-then' }, (fg.side < 0 ? '最も低かった値 ' : '最も高かった値 ') + e.extreme + '（' + dayOf(e.extremeDate, false, false) + '）' + (e.startedEarlier ? '・データの始まりより前から続いていた局面' : '')));
+          var fwd = el('dl', { 'class': 'fwd' });
+          [['1週間後', e.w1], ['1か月後', e.m1], ['3か月後', e.m3]].forEach(function (c) {
+            var cell = el('div');
+            cell.appendChild(el('dt', null, c[0]));
+            var dd = el('dd');
+            dd.appendChild(figure(c[1], pctText(c[1])));
+            cell.appendChild(dd);
+            fwd.appendChild(cell);
+          });
+          row.appendChild(fwd);
+          body.appendChild(row);
+        });
+      } else if (fg.side) {
+        body.appendChild(el('p', { 'class': 'memo-hint' }, 'この1年で Fear & Greed が今日の水準' + (fg.side < 0 ? '以下まで下がった' : '以上まで上がった') + '局面は、今回のほかにありません。'));
+      }
+    }
+
     var drivers = (Array.isArray(d.drivers) ? d.drivers : []).filter(function (x) { return x && x.t; });
     if (drivers.length) {
       body.appendChild(el('h3', null, '動いた理由'));
@@ -1061,7 +1127,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
     var analogs = (Array.isArray(d.analogs) ? d.analogs : []).filter(function (a) { return a && a.d; });
     if (analogs.length) {
       body.appendChild(el('h3', null, '過去の似た局面（今日に近い順）'));
-      body.appendChild(el('p', { 'class': 'memo-hint' }, 'S&P500 と VIX の状態が今日に近かった日を' + (st.since ? st.since + '年以降から' : '') + '機械的に選んだものです。グラフはその日から約3か月（60営業日）の S&P500 で、点線が当日の水準です。'));
+      body.appendChild(el('p', { 'class': 'memo-hint' }, 'S&P500・VIX' + (fg && fg.estimated ? '・Fear & Greed' : '') + ' の状態が今日に近かった日を' + (st.since ? st.since + '年以降から' : '') + '機械的に選んだものです。' + (fg && fg.estimated ? '過去の日の Fear & Greed は実際の値が1年分しかないため、同じ材料から推定した目安です。' : '') + 'グラフはその日から約3か月（60営業日）の S&P500 で、点線が当日の水準です。'));
       analogs.forEach(function (a) {
         var row = el('div', { 'class': 'analog' });
         var head = el('div');
